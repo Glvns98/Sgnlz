@@ -131,3 +131,68 @@ def test_recovery_logic_thesis_validation_no_averaging_and_stagnation_exit() -> 
     d_stag = mgr.evaluate(pos_stag, ms_chop)
     assert d_stag.action == ManagementAction.EXIT
     assert d_stag.exit_reason == ExitReason.TIME_STAGNATION
+
+
+def test_five_level_professional_exit_hierarchy() -> None:
+    mgr = TradeManager(ManagementSettings(momentum_exit_min_decay_bars=2))
+    pos = _make_buy_position(entry=100.0, stop=98.0)  # 1R = 2.0
+
+    # Level 1: Single dark-green bar (BULLISH_DECELERATION) while price is still progressing -> no premature exit
+    pos.bars_held = 2
+    pos.decay_bars = 1
+    pos.update_mark(100.8, 101.0, 100.4, pos.opened_at + timedelta(minutes=30), is_new_bar=False)
+    ms_l1 = make_market_state(
+        close=100.8,
+        val=1.4,
+        prev_val=1.8,
+        momentum_state=MomentumState.WEAK_BULLISH,
+        transitions=(MomentumTransition.BULLISH_DECELERATION,),
+        price_progressing_bull=True,
+        structure_broken_bull=False,
+    )
+    d_l1 = mgr.evaluate(pos, ms_l1)
+    assert d_l1.action != ManagementAction.EXIT
+
+    # Level 2: Sustained fade + price stalling -> tighten stop / lock risk
+    pos.decay_bars = 2
+    ms_l2 = make_market_state(
+        close=100.8,
+        val=1.0,
+        prev_val=1.4,
+        momentum_state=MomentumState.WEAK_BULLISH,
+        transitions=(MomentumTransition.BULLISH_DECELERATION,),
+        price_progressing_bull=False,
+        structure_broken_bull=False,
+    )
+    d_l2 = mgr.evaluate(pos, ms_l2)
+    assert d_l2.action in (ManagementAction.TIGHTEN_STOP, ManagementAction.REDUCE)
+
+    # Level 3: Momentum fade + structural failure -> immediate MOMENTUM_DETERIORATION exit
+    ms_l3 = make_market_state(
+        close=100.8,
+        val=0.7,
+        prev_val=1.0,
+        momentum_state=MomentumState.WEAK_BULLISH,
+        transitions=(MomentumTransition.BULLISH_DECELERATION,),
+        price_progressing_bull=False,
+        structure_broken_bull=True,
+    )
+    d_l3 = mgr.evaluate(pos, ms_l3)
+    assert d_l3.action == ManagementAction.EXIT
+    assert d_l3.exit_reason == ExitReason.MOMENTUM_DETERIORATION
+
+    # Level 4: Zero-line cross against profitable position -> immediate MOMENTUM_DETERIORATION exit
+    pos_l4 = _make_buy_position(entry=100.0, stop=98.0)
+    pos_l4.bars_held = 2
+    pos_l4.decay_bars = 1
+    pos_l4.update_mark(100.6, 100.8, 100.2, pos_l4.opened_at + timedelta(minutes=30), is_new_bar=False)
+    ms_l4 = make_market_state(
+        close=100.6,
+        val=-0.25,
+        prev_val=0.15,
+        momentum_state=MomentumState.WEAK_BEARISH,
+        transitions=(MomentumTransition.ZERO_CROSS_DOWN, MomentumTransition.BEARISH_ACCELERATION),
+    )
+    d_l4 = mgr.evaluate(pos_l4, ms_l4)
+    assert d_l4.action == ManagementAction.EXIT
+    assert d_l4.exit_reason == ExitReason.MOMENTUM_DETERIORATION

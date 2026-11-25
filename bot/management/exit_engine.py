@@ -142,8 +142,42 @@ class ExitEngine:
                     thesis_status="INVALIDATED",
                 )
 
-        # 5. Momentum deterioration exit (after sustained decay)
-        if opposing_cross and opposing_strong and position.decay_bars >= self.settings.momentum_exit_min_decay_bars:
+        # 5. 5-Level Professional Exit Hierarchy
+        fading_momentum = (
+            is_buy and market_state.has_transition(MomentumTransition.BULLISH_DECELERATION)
+        ) or (
+            (not is_buy) and market_state.has_transition(MomentumTransition.BEARISH_DECELERATION)
+        )
+        price_stalling = (is_buy and not market_state.price_progressing_bull) or (
+            (not is_buy) and not market_state.price_progressing_bear
+        )
+        structure_failed = (is_buy and market_state.structure_broken_bull) or (
+            (not is_buy) and market_state.structure_broken_bear
+        )
+        norm_mom = market_state.squeeze.normalized_momentum
+
+        # Level 4 — Momentum Reversal (Zero-Line Cross against position)
+        if opposing_cross and (
+            opposing_strong
+            or position.decay_bars >= self.settings.momentum_exit_min_decay_bars
+            or (cur_r > 0.15 and position.bars_held >= 1)
+        ):
+            return ExitAssessment(
+                should_exit=True,
+                emergency=False,
+                tighten_stop=False,
+                reduce_risk=False,
+                exit_reason=ExitReason.MOMENTUM_DETERIORATION,
+                reason_code="level4_zero_cross_momentum_reversal",
+                thesis_status="INVALIDATED",
+            )
+
+        if (
+            opposing_strong
+            and (opposing_cross or (norm_mom <= -0.65 if is_buy else norm_mom >= 0.65))
+            and position.decay_bars >= self.settings.momentum_exit_min_decay_bars
+            and cur_r > 0.25
+        ):
             return ExitAssessment(
                 should_exit=True,
                 emergency=False,
@@ -152,6 +186,58 @@ class ExitEngine:
                 exit_reason=ExitReason.MOMENTUM_DETERIORATION,
                 reason_code="momentum_deterioration_reversal",
                 thesis_status="INVALIDATED",
+            )
+
+        # Level 3 — Momentum Fading + Structural Failure
+        if (
+            (fading_momentum or opposing_weak or opposing_strong)
+            and structure_failed
+            and position.bars_held >= 1
+            and (position.decay_bars >= self.settings.momentum_exit_min_decay_bars or cur_r >= 0.25)
+        ):
+            return ExitAssessment(
+                should_exit=True,
+                emergency=False,
+                tighten_stop=False,
+                reduce_risk=False,
+                exit_reason=ExitReason.MOMENTUM_DETERIORATION,
+                reason_code="level3_momentum_fade_and_structure_break",
+                thesis_status="INVALIDATED",
+            )
+
+        # Level 2 — Momentum Fading + Price Stops Progressing -> Tighten / Reduce Risk
+        if (
+            fading_momentum
+            and price_stalling
+            and position.decay_bars >= self.settings.momentum_exit_min_decay_bars
+            and cur_r > 0.0
+        ):
+            should_reduce = (
+                position.remaining_fraction > 0.55 and cur_r >= self.settings.profit_lock_trigger_r
+            )
+            return ExitAssessment(
+                should_exit=False,
+                emergency=False,
+                tighten_stop=True,
+                reduce_risk=should_reduce,
+                exit_reason=None,
+                reason_code="level2_momentum_fade_price_stall",
+                thesis_status="UNCERTAIN",
+            )
+
+        # Sustained multi-bar decay fallback -> Tighten / Lock Profit
+        if position.decay_bars >= self.settings.momentum_exit_min_decay_bars + 1 and cur_r > 0.0:
+            should_reduce = (
+                position.remaining_fraction > 0.55 and cur_r >= self.settings.profit_lock_trigger_r
+            )
+            return ExitAssessment(
+                should_exit=False,
+                emergency=False,
+                tighten_stop=True,
+                reduce_risk=should_reduce,
+                exit_reason=None,
+                reason_code="sustained_momentum_decay",
+                thesis_status="UNCERTAIN",
             )
 
         return ExitAssessment(

@@ -128,6 +128,23 @@ class MarketStateSnapshot:
     htf_bias: MomentumState | None = None
     htf_squeeze_state: SqueezeState | None = None
     ltf_momentum_state: MomentumState | None = None
+    open: float = 0.0
+    engine_stage: str = "STAGE_3_DIRECTIONAL_EXPANSION"
+    systematic_state: str = "BULLISH_EXPANSION"
+    swing_high: float = 0.0
+    swing_low: float = 0.0
+    compression_high: float = 0.0
+    compression_low: float = 0.0
+    recent_structure_low: float = 0.0
+    recent_structure_high: float = 0.0
+    structure_bullish_confirmed: bool = True
+    structure_bearish_confirmed: bool = True
+    overhead_room_atr: float = 5.0
+    underneath_room_atr: float = 5.0
+    price_progressing_bull: bool = True
+    price_progressing_bear: bool = True
+    structure_broken_bull: bool = False
+    structure_broken_bear: bool = False
 
     def has_transition(self, transition: MomentumTransition) -> bool:
         return transition in self.transitions
@@ -152,6 +169,10 @@ class MarketStateSnapshot:
             "normalized_momentum": self.squeeze.normalized_momentum,
             "momentum_strength": self.squeeze.momentum_strength,
             "range_ma": self.squeeze.range_ma,
+            "engine_stage": self.engine_stage,
+            "systematic_state": self.systematic_state,
+            "overhead_room_atr": round(self.overhead_room_atr, 3),
+            "underneath_room_atr": round(self.underneath_room_atr, 3),
         }
 
 

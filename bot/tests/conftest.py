@@ -74,6 +74,7 @@ def make_market_state(
     sqz_fired: bool = False,
     volatility_ratio: float = 1.0,
     epoch: int = 1767225600,
+    **extra_fields: object,
 ) -> MarketStateSnapshot:
     snap = SqueezeSnapshot(
         val=val,
@@ -112,6 +113,7 @@ def make_market_state(
         transitions=transitions,
         regime=regime,
         volatility_ratio=volatility_ratio,
+        **extra_fields,  # type: ignore[arg-type]
     )
 
 

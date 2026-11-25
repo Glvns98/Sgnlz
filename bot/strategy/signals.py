@@ -72,14 +72,36 @@ class SignalEngine:
             return self._no_action(state, symbol_cfg, reasons or ("insufficient_edge_confluence",))
 
         self._last_opportunity_bar[sym] = bar_idx
-        suggested_stop = (
-            state.close - risk_dist if direction == TradeDirection.BUY else state.close + risk_dist
-        )
+
+        stop_dist = risk_dist
+        if (
+            direction == TradeDirection.BUY
+            and state.recent_structure_low > 0
+            and state.recent_structure_low < state.close
+        ):
+            struct_dist = (state.close - state.recent_structure_low) + 0.35 * range_ma
+            stop_dist = min(max(struct_dist, 0.85 * risk_dist), 1.50 * risk_dist)
+        elif direction == TradeDirection.SELL and state.recent_structure_high > state.close:
+            struct_dist = (state.recent_structure_high - state.close) + 0.35 * range_ma
+            stop_dist = min(max(struct_dist, 0.85 * risk_dist), 1.50 * risk_dist)
+
+        suggested_stop = state.close - stop_dist if direction == TradeDirection.BUY else state.close + stop_dist
         sig_type = (
             SignalType.NEW_OPPORTUNITY
             if (snap.sqz_fired or self._recent_fired_bars.get(sym, 0) > 0)
             else SignalType.CONTINUATION
         )
+        if snap.sqz_fired:
+            entry_style = "ENTRY_A_IGNITION"
+        elif (
+            self._recent_fired_bars.get(sym, 0) > 0
+            or (direction == TradeDirection.BUY and state.swing_high > 0 and state.close >= state.swing_high)
+            or (direction == TradeDirection.SELL and state.swing_low > 0 and state.close <= state.swing_low)
+        ):
+            entry_style = "ENTRY_B_CONFIRMATION"
+        else:
+            entry_style = "ENTRY_C_RETEST"
+
         sig_id = self._make_id(state, sig_type, direction)
         return TradeSignal(
             signal_id=sig_id,
@@ -95,9 +117,17 @@ class SignalEngine:
             timeframe_sec=state.timeframe_sec,
             entry_price=state.close,
             suggested_stop=suggested_stop,
-            initial_risk_distance=risk_dist,
+            initial_risk_distance=stop_dist,
             reasons=tuple(reasons),
-            metadata={"normalized_momentum": round(snap.normalized_momentum, 4), "range_ma": range_ma},
+            metadata={
+                "normalized_momentum": round(snap.normalized_momentum, 4),
+                "range_ma": range_ma,
+                "entry_style": entry_style,
+                "engine_stage": state.engine_stage,
+                "systematic_state": state.systematic_state,
+                "overhead_room_atr": round(state.overhead_room_atr, 2),
+                "underneath_room_atr": round(state.underneath_room_atr, 2),
+            },
         )
 
     def _score_opportunity(
@@ -154,6 +184,33 @@ class SignalEngine:
         if state.regime == MarketRegime.CHOP:
             score -= 0.12
             reasons.append("chop_penalty")
+
+        # Tier 4 — 15m Price Structure Confirmation
+        price_confirmed = (
+            state.structure_bullish_confirmed
+            if direction == TradeDirection.BUY
+            else state.structure_bearish_confirmed
+        )
+        if price_confirmed:
+            score += 0.06
+            reasons.append("tier4_price_structure_confirmed")
+        else:
+            score -= 0.14
+            reasons.append("unconfirmed_price_candle")
+
+        # Tier 5 — Location Filter (Setup A Breakout Room vs Setup B S/R Barrier Caution)
+        if direction == TradeDirection.BUY:
+            if state.overhead_room_atr < 0.50:
+                score -= 0.18
+                reasons.append("caution_overhead_resistance")
+            elif state.overhead_room_atr >= 0.85:
+                reasons.append("tier5_clean_location_room")
+        else:
+            if state.underneath_room_atr < 0.50:
+                score -= 0.18
+                reasons.append("caution_underlying_support")
+            elif state.underneath_room_atr >= 0.85:
+                reasons.append("tier5_clean_location_room")
 
         return direction, max(0.0, min(1.0, score)), reasons
 

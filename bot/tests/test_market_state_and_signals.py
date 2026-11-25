@@ -120,3 +120,50 @@ def test_signal_engine_pure_15m_ignores_htf_bias() -> None:
     assert res_base.confidence == res_opp.confidence
     assert "htf_aligned" not in res_opp.reasons
     assert "htf_strongly_opposing" not in res_opp.reasons
+
+
+def test_setup_a_breakout_vs_setup_b_under_resistance_and_entry_archetypes() -> None:
+    sig_a = SignalEngine()
+    sig_b = SignalEngine()
+    profile = SymbolProfile(symbol="R_100", primary_timeframe=900, higher_timeframe=None, min_confidence=0.58)
+
+    setup_a = make_market_state(
+        close=102.0,
+        high=102.3,
+        low=100.8,
+        squeeze_state=SqueezeState.SQUEEZE_OFF,
+        momentum_state=MomentumState.STRONG_BULLISH,
+        transitions=(MomentumTransition.BULLISH_ACCELERATION, MomentumTransition.ZERO_CROSS_UP),
+        sqz_fired=True,
+        swing_high=101.8,
+        recent_structure_low=100.6,
+        structure_bullish_confirmed=True,
+        overhead_room_atr=5.0,
+        epoch=1767226500,
+    )
+    out_a = sig_a.evaluate(setup_a, profile)
+    assert out_a.signal_type == SignalType.NEW_OPPORTUNITY
+    assert out_a.direction == TradeDirection.BUY
+    assert out_a.metadata.get("entry_style") == "ENTRY_A_IGNITION"
+    assert "tier4_price_structure_confirmed" in out_a.reasons
+    assert "tier5_clean_location_room" in out_a.reasons
+    assert out_a.suggested_stop < setup_a.close
+
+    # Setup B: squeeze release wedged right underneath resistance with unconfirmed price bar -> blocked
+    setup_b = make_market_state(
+        close=101.6,
+        high=102.0,
+        low=100.8,
+        squeeze_state=SqueezeState.SQUEEZE_OFF,
+        momentum_state=MomentumState.STRONG_BULLISH,
+        transitions=(MomentumTransition.BULLISH_ACCELERATION,),
+        sqz_fired=True,
+        swing_high=101.9,
+        structure_bullish_confirmed=False,
+        overhead_room_atr=0.20,
+        epoch=1767226500,
+    )
+    out_b = sig_b.evaluate(setup_b, profile)
+    assert out_b.signal_type == SignalType.NO_ACTION
+    assert "caution_overhead_resistance" in out_b.reasons
+    assert "unconfirmed_price_candle" in out_b.reasons

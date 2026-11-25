@@ -9,7 +9,6 @@ from bot.config.settings import ManagementSettings, SymbolProfile
 from bot.core.enums import (
     ExitReason,
     ManagementAction,
-    MomentumState,
     MomentumTransition,
     SqueezeState,
     TradeDirection,
@@ -229,30 +228,29 @@ def _confluence_checks(
 
     checks = [
         (
-            "Squeeze Release / Expansion Active",
+            "Tier 1 · Squeeze Release / Expansion (⚫➜⚪)",
             state.squeeze.sqz_fired or state.squeeze_state == SqueezeState.SQUEEZE_OFF,
         ),
         (
-            "Strong 15m Squeeze Momentum",
-            state.momentum_state in (MomentumState.STRONG_BULLISH, MomentumState.STRONG_BEARISH),
+            "Tier 2 · Histogram Directional Bias (>0 / <0)",
+            (is_buy and state.squeeze.val > 0) or ((not is_buy) and state.squeeze.val < 0),
         ),
         (
-            "15m Momentum Accelerating",
+            "Tier 3 · Momentum Accelerating (🟩 Lime / 🟥 Red)",
             (is_buy and state.has_transition(MomentumTransition.BULLISH_ACCELERATION))
             or ((not is_buy) and state.has_transition(MomentumTransition.BEARISH_ACCELERATION)),
         ),
         (
-            "Clean Volatility Regime",
-            state.regime.value != "ABNORMAL_VOLATILITY",
+            "Tier 4 · 15m Price Structure Confirmed",
+            state.structure_bullish_confirmed if is_buy else state.structure_bearish_confirmed,
         ),
         (
-            "Fresh Zero-Cross Transition",
-            (is_buy and state.has_transition(MomentumTransition.ZERO_CROSS_UP))
-            or ((not is_buy) and state.has_transition(MomentumTransition.ZERO_CROSS_DOWN)),
+            "Tier 5 · Clean Location (Room to S/R Barrier)",
+            (state.overhead_room_atr >= 0.50) if is_buy else (state.underneath_room_atr >= 0.50),
         ),
         (
-            "Signal Confidence >= 0.65",
-            signal.confidence >= 0.65,
+            "Tier 6 · Asymmetric Structural Stop & Regime",
+            state.regime.value != "ABNORMAL_VOLATILITY" and signal.confidence >= 0.58,
         ),
     ]
     for label, ok in checks:
