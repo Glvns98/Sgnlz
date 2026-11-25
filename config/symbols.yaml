@@ -1,0 +1,144 @@
+symbols:
+  R_10:
+    enabled: true
+    description: Volatility 10 Index
+    slack_channel: C0CJWBD99QD
+    reddit_flair: "📈 #volatility-indices"
+    primary_timeframe: 900
+    higher_timeframe: null
+    lower_timeframe: null
+    multiplier: 100
+    risk_multiplier: 1.0
+    atr_stop_multiple: 1.8
+    trailing_factor: 1.15
+    min_confidence: 0.58
+    cooldown_bars: 4
+    max_exposure: 1
+    spread_bps: 2.0
+    slippage_bps: 1.0
+
+  R_25:
+    enabled: true
+    description: Volatility 25 Index
+    slack_channel: C0CJWBD99QD
+    reddit_flair: "📈 #volatility-indices"
+    primary_timeframe: 900
+    higher_timeframe: null
+    lower_timeframe: null
+    multiplier: 50
+    risk_multiplier: 1.0
+    atr_stop_multiple: 1.9
+    trailing_factor: 1.20
+    min_confidence: 0.58
+    cooldown_bars: 4
+    max_exposure: 1
+    spread_bps: 2.5
+    slippage_bps: 1.5
+
+  R_50:
+    enabled: true
+    description: Volatility 50 Index
+    slack_channel: C0CJWBD99QD
+    reddit_flair: "📈 #volatility-indices"
+    primary_timeframe: 900
+    higher_timeframe: null
+    lower_timeframe: null
+    multiplier: 40
+    risk_multiplier: 0.95
+    atr_stop_multiple: 2.0
+    trailing_factor: 1.25
+    min_confidence: 0.60
+    cooldown_bars: 5
+    max_exposure: 1
+    spread_bps: 3.0
+    slippage_bps: 2.0
+
+  R_75:
+    enabled: true
+    description: Volatility 75 Index
+    slack_channel: C0CJWBD99QD
+    reddit_flair: "📈 #volatility-indices"
+    primary_timeframe: 900
+    higher_timeframe: null
+    lower_timeframe: null
+    multiplier: 25
+    risk_multiplier: 0.90
+    atr_stop_multiple: 2.1
+    trailing_factor: 1.30
+    min_confidence: 0.60
+    cooldown_bars: 5
+    max_exposure: 1
+    spread_bps: 4.0
+    slippage_bps: 2.5
+
+  R_100:
+    enabled: true
+    description: Volatility 100 Index
+    slack_channel: C0CJWBD99QD
+    reddit_flair: "📈 #volatility-indices"
+    primary_timeframe: 900
+    higher_timeframe: null
+    lower_timeframe: null
+    multiplier: 20
+    risk_multiplier: 0.85
+    atr_stop_multiple: 2.2
+    trailing_factor: 1.35
+    min_confidence: 0.62
+    cooldown_bars: 6
+    max_exposure: 1
+    spread_bps: 5.0
+    slippage_bps: 3.0
+
+  1HZ100V:
+    enabled: false
+    description: Volatility 100 (1s) Index
+    slack_channel: C0CJWBD99QD
+    reddit_flair: "📈 #volatility-indices"
+    primary_timeframe: 900
+    higher_timeframe: null
+    lower_timeframe: null
+    multiplier: 20
+    risk_multiplier: 0.80
+    atr_stop_multiple: 2.2
+    trailing_factor: 1.35
+    min_confidence: 0.64
+    cooldown_bars: 6
+    max_exposure: 1
+    spread_bps: 6.0
+    slippage_bps: 3.0
+
+  frxEURUSD:
+    enabled: false
+    description: EUR/USD Spot FX
+    slack_channel: C0CJWBHVAMT
+    reddit_flair: "💱 #forex-majors"
+    primary_timeframe: 900
+    higher_timeframe: null
+    lower_timeframe: null
+    multiplier: 100
+    risk_multiplier: 1.0
+    atr_stop_multiple: 1.8
+    trailing_factor: 1.20
+    min_confidence: 0.62
+    cooldown_bars: 4
+    max_exposure: 1
+    spread_bps: 1.5
+    slippage_bps: 1.0
+
+  frxXAUUSD:
+    enabled: false
+    description: Gold / USD
+    slack_channel: C0CK5BEUT1S
+    reddit_flair: "🥇 #metals"
+    primary_timeframe: 900
+    higher_timeframe: null
+    lower_timeframe: null
+    multiplier: 50
+    risk_multiplier: 0.85
+    atr_stop_multiple: 2.0
+    trailing_factor: 1.30
+    min_confidence: 0.64
+    cooldown_bars: 5
+    max_exposure: 1
+    spread_bps: 3.5
+    slippage_bps: 2.0

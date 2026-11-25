@@ -1,0 +1,90 @@
+mode: ANALYSIS_ONLY
+
+deriv:
+  app_id: ${DERIV_APP_ID}
+  token: ${DERIV_API_TOKEN}
+  endpoint: wss://api.derivws.com/trading/v1/options/ws/public
+  rest_base_url: https://api.derivws.com/trading/v1/options
+  discover_all_symbols: true
+  poll_interval_sec: 30.0
+  symbol_refresh_sec: 3600.0
+  ping_interval_sec: 25.0
+  reconnect_base_sec: 2.0
+  reconnect_max_sec: 60.0
+  max_requests_per_sec: 5.0
+  history_candles: 120
+  contract_type: MULTIPLIER
+
+squeeze:
+  bb_length: 20
+  bb_mult: 2.0
+  kc_length: 20
+  kc_mult: 1.5
+  use_true_range: true
+  lazybear_mult_parity: true
+  tr_handle_na: false
+
+risk:
+  account_balance: 10000.0
+  risk_per_trade: 0.01
+  min_stake: 1.0
+  max_stake: 250.0
+  max_open_positions: 8
+  max_symbol_exposure: 1
+  max_per_group_open: 2
+  max_concurrent_risk: 0.08
+  max_daily_loss: 0.05
+  max_consecutive_losses: 5
+  allow_martingale: false
+  allow_averaging_down: false
+  abnormal_volatility_block: true
+
+management:
+  policy: DYNAMIC_MANAGEMENT
+  breakeven_trigger_r: 0.50
+  breakeven_buffer_r: 0.05
+  profit_lock_trigger_r: 1.00
+  profit_lock_floor_r: 0.45
+  strong_profit_trigger_r: 1.50
+  strong_profit_floor_r: 0.85
+  runner_trigger_r: 2.00
+  max_giveback_ratio: 0.35
+  stagnation_bars: 12
+  stagnation_min_r: 0.25
+  hard_invalidation_r: -1.15
+  momentum_exit_min_decay_bars: 2
+  partial_reduce_fraction: 0.50
+  recovery_mode_enabled: false
+
+storage:
+  backend: sqlite
+  sqlite_path: data/squeeze_tme.db
+  postgres_dsn: ${DATABASE_URL}
+
+notifications:
+  slack_enabled: true
+  slack_bot_token: ${SLACK_BOT_TOKEN}
+  slack_channel: C09C9FGM8QY
+  slack_webhook_url: ${SLACK_WEBHOOK_URL}
+  reddit_enabled: true
+  reddit_subreddit: ${REDDIT_SUBREDDIT}
+  reddit_client_id: ${REDDIT_CLIENT_ID}
+  reddit_client_secret: ${REDDIT_CLIENT_SECRET}
+  reddit_username: ${REDDIT_USERNAME}
+  reddit_password: ${REDDIT_PASSWORD}
+  reddit_outbox_dir: outbox/reddit
+  max_signals_per_sweep: 6
+  send_market_pulses: false
+  send_unentered_analysis_signals: false
+  min_stop_change_r_for_alert: 0.05
+  min_slack_priority: NOTICE
+  min_reddit_priority: NOTICE
+
+dashboard:
+  enabled: true
+  refresh_hz: 2.0
+
+logging:
+  level: INFO
+  json_log_path: logs/engine.jsonl
+  text_log_path: logs/engine.log

@@ -1,0 +1,36 @@
+{
+  "name": "cerynaean-hind-reddit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cerynaean Hind — Strategy v3 Deriv Trading Signal Bot & Interactive Multi-Channel Command Center for Reddit (r/GlvnsOrg)",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run build:client -- --watch\" \"npm run build:server -- --watch\" \"devvit playtest GlvnsOrg\"",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "vite build --config vite.client.config.ts",
+    "build:server": "vite build --config vite.server.config.ts",
+    "typecheck": "tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "test": "vitest run",
+    "deploy": "npm run build && devvit upload",
+    "launch": "npm run build && devvit upload && devvit install GlvnsOrg",
+    "login": "devvit login"
+  },
+  "dependencies": {
+    "@devvit/web": "0.15.4",
+    "express": "^5.1.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.1",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.4.1",
+    "concurrently": "^9.1.2",
+    "devvit": "0.15.4",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.1.4"
+  }
+}

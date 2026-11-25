@@ -1,0 +1,189 @@
+{
+  "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
+  "name": "cerynaean-hind",
+  "dev": {
+    "subreddit": "GlvnsOrg"
+  },
+  "post": {
+    "dir": "dist/client",
+    "entrypoints": {
+      "default": {
+        "entry": "index.html",
+        "height": "regular",
+        "styles": {
+          "height": 320
+        }
+      },
+      "signal": {
+        "entry": "index.html",
+        "height": "regular",
+        "styles": {
+          "height": 320
+        }
+      },
+      "signal-detail": {
+        "entry": "signal-detail.html",
+        "height": "tall"
+      },
+      "signal-calc": {
+        "entry": "signal-calc.html",
+        "height": "tall"
+      }
+    }
+  },
+  "server": {
+    "dir": "dist/server",
+    "entry": "index.cjs"
+  },
+  "permissions": {
+    "reddit": {
+      "enable": true
+    },
+    "redis": true,
+    "http": {
+      "enable": true,
+      "domains": [
+        "slack.com"
+      ]
+    }
+  },
+  "triggers": {
+    "onAppInstall": "/internal/triggers/app-install",
+    "onAppUpgrade": "/internal/triggers/app-upgrade",
+    "onCommentCreate": "/internal/triggers/comment-create"
+  },
+  "scheduler": {
+    "tasks": {
+      "sync-signals": {
+        "endpoint": "/internal/scheduler/sync-signals",
+        "cron": "*/2 * * * *"
+      },
+      "sync-pulses": {
+        "endpoint": "/internal/scheduler/sync-pulses",
+        "cron": "*/15 * * * *"
+      }
+    }
+  },
+  "menu": {
+    "items": [
+      {
+        "label": "Setup GlvnsOrg Market Channels & Flairs",
+        "description": "Create all 13 Slack-mirrored market channel flairs and post the channel directory",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/setup-channels"
+      },
+      {
+        "label": "Sync Live Signals & Pulse Now",
+        "description": "Immediately pull Strategy v3 signals, lifecycle updates, and 12h pulse into r/GlvnsOrg",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/sync-now"
+      },
+      {
+        "label": "Quick Market Scan (Strategy v3)",
+        "description": "Inspect live 30m/1H adaptive regime alignment and blockers for any Deriv instrument",
+        "location": "subreddit",
+        "forUserType": "user",
+        "endpoint": "/internal/menu/quick-scan"
+      }
+    ]
+  },
+  "forms": {
+    "quickScanForm": "/internal/forms/quick-scan"
+  },
+  "settings": {
+    "global": {
+      "slackBotToken": {
+        "type": "string",
+        "label": "Slack Relay Bot Token",
+        "helpText": "Bot token (xoxb-...) reading your live Cerynaean Hind Slack channels via Reddit's globally allowlisted slack.com API.",
+        "isSecret": true
+      },
+      "apiBridgeUrl": {
+        "type": "string",
+        "label": "Railway API Bridge Base URL (optional)",
+        "helpText": "Optional direct Railway HTTPS origin (requires Reddit custom domain approval).",
+        "defaultValue": "https://deriv-squeeze-bot-production.up.railway.app"
+      },
+      "apiBridgeToken": {
+        "type": "string",
+        "label": "Railway API Bridge Bearer Token (optional)",
+        "helpText": "Optional Bearer token matching API_BRIDGE_TOKEN on Railway.",
+        "isSecret": true
+      }
+    },
+    "subreddit": {
+      "autoPostSignals": {
+        "type": "boolean",
+        "label": "Auto-post Live Strategy v3 Signal Cards",
+        "helpText": "Automatically submit a flaired Reddit post in r/GlvnsOrg for qualifying live signals.",
+        "defaultValue": true
+      },
+      "redditMinGrade": {
+        "type": "select",
+        "label": "Minimum Grade for Individual Subreddit Signal Posts",
+        "helpText": "Controls Reddit posting pace (all signals remain visible inside the Interactive Command Center).",
+        "defaultValue": "B+",
+        "options": [
+          { "label": "A+ only (~1/day, sniper)", "value": "A+" },
+          { "label": "A and above (~2-3/day, selective)", "value": "A" },
+          { "label": "B+ and above (Recommended · match Slack default)", "value": "B+" },
+          { "label": "B and above (~3-4/day)", "value": "B" },
+          { "label": "All grades", "value": "ALL" }
+        ]
+      },
+      "autoCommentLifecycle": {
+        "type": "boolean",
+        "label": "Auto-comment Live Trade Lifecycle Alerts",
+        "helpText": "Post TP1/TP2/TP3, BE, trailing stop, SL, and early exit comments directly onto each signal post.",
+        "defaultValue": true
+      },
+      "autoPostPulses": {
+        "type": "boolean",
+        "label": "Auto-post 12-Hour Market Pulses & 00:00 UTC EOD Recaps",
+        "helpText": "Post UTC-aligned 12-hour Market Pulses and daily End-of-Day Desk Recaps to #trading flair.",
+        "defaultValue": true
+      },
+      "enableCommentCommands": {
+        "type": "boolean",
+        "label": "Enable !scan / !calc / !status / !stats Comment Commands",
+        "helpText": "Allow members to run !scan CRASH500, !calc R_100 1000 1, !open, !edges, !stats in comments.",
+        "defaultValue": true
+      },
+      "enabledChannels": {
+        "type": "multiSelect",
+        "label": "Enabled Market-Group Channels for Subreddit Posts",
+        "helpText": "Choose which of the 12 dedicated market channels publish top-level signal posts.",
+        "defaultValue": [
+          "crash-boom",
+          "volatility-indices",
+          "step-indices",
+          "jump-indices",
+          "range-break",
+          "daily-reset",
+          "forex-majors",
+          "forex-minors",
+          "fx-baskets",
+          "metals",
+          "crypto-signals",
+          "stock-indices"
+        ],
+        "options": [
+          { "label": "💥 #crash-boom — Crash & Boom", "value": "crash-boom" },
+          { "label": "📈 #volatility-indices — Volatility Indices", "value": "volatility-indices" },
+          { "label": "🪜 #step-indices — Step Indices", "value": "step-indices" },
+          { "label": "🦘 #jump-indices — Jump Indices", "value": "jump-indices" },
+          { "label": "📦 #range-break — Range Break", "value": "range-break" },
+          { "label": "🔄 #daily-reset — Daily Reset (Bull/Bear)", "value": "daily-reset" },
+          { "label": "💱 #forex-majors — Forex Majors", "value": "forex-majors" },
+          { "label": "🌐 #forex-minors — Forex Minors", "value": "forex-minors" },
+          { "label": "🧺 #fx-baskets — FX & Gold Baskets", "value": "fx-baskets" },
+          { "label": "🥇 #metals — Precious Metals", "value": "metals" },
+          { "label": "₿ #crypto-signals — Crypto", "value": "crypto-signals" },
+          { "label": "📊 #stock-indices — Stock Indices (OTC)", "value": "stock-indices" }
+        ]
+      }
+    }
+  }
+}
