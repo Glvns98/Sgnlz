@@ -328,7 +328,7 @@ def parse_active_symbols(
                 atr_stop_multiple=route.atr_stop_multiple,
                 trailing_factor=route.trailing_factor,
                 min_confidence=0.58,
-                cooldown_bars=4,
+                cooldown_bars=0,
                 max_exposure=1,
                 spread_bps=route.spread_bps,
                 slippage_bps=route.slippage_bps,

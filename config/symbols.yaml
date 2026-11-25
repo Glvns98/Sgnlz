@@ -12,7 +12,7 @@ symbols:
     atr_stop_multiple: 1.8
     trailing_factor: 1.15
     min_confidence: 0.58
-    cooldown_bars: 4
+    cooldown_bars: 0
     max_exposure: 1
     spread_bps: 2.0
     slippage_bps: 1.0
@@ -30,7 +30,7 @@ symbols:
     atr_stop_multiple: 1.9
     trailing_factor: 1.20
     min_confidence: 0.58
-    cooldown_bars: 4
+    cooldown_bars: 0
     max_exposure: 1
     spread_bps: 2.5
     slippage_bps: 1.5
@@ -48,7 +48,7 @@ symbols:
     atr_stop_multiple: 2.0
     trailing_factor: 1.25
     min_confidence: 0.60
-    cooldown_bars: 5
+    cooldown_bars: 0
     max_exposure: 1
     spread_bps: 3.0
     slippage_bps: 2.0
@@ -66,7 +66,7 @@ symbols:
     atr_stop_multiple: 2.1
     trailing_factor: 1.30
     min_confidence: 0.60
-    cooldown_bars: 5
+    cooldown_bars: 0
     max_exposure: 1
     spread_bps: 4.0
     slippage_bps: 2.5
@@ -84,7 +84,7 @@ symbols:
     atr_stop_multiple: 2.2
     trailing_factor: 1.35
     min_confidence: 0.62
-    cooldown_bars: 6
+    cooldown_bars: 0
     max_exposure: 1
     spread_bps: 5.0
     slippage_bps: 3.0
@@ -102,7 +102,7 @@ symbols:
     atr_stop_multiple: 2.2
     trailing_factor: 1.35
     min_confidence: 0.64
-    cooldown_bars: 6
+    cooldown_bars: 0
     max_exposure: 1
     spread_bps: 6.0
     slippage_bps: 3.0
@@ -120,7 +120,7 @@ symbols:
     atr_stop_multiple: 1.8
     trailing_factor: 1.20
     min_confidence: 0.62
-    cooldown_bars: 4
+    cooldown_bars: 0
     max_exposure: 1
     spread_bps: 1.5
     slippage_bps: 1.0
@@ -138,7 +138,7 @@ symbols:
     atr_stop_multiple: 2.0
     trailing_factor: 1.30
     min_confidence: 0.64
-    cooldown_bars: 5
+    cooldown_bars: 0
     max_exposure: 1
     spread_bps: 3.5
     slippage_bps: 2.0

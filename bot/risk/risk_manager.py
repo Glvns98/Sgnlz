@@ -40,25 +40,29 @@ class RiskManager:
         level = RiskLevel.NORMAL
         entries_allowed = True
 
-        if daily_dd_pct >= self.settings.max_daily_loss:
-            level = RiskLevel.HALTED
-            entries_allowed = False
-            reasons.append("max_daily_loss_reached")
-        elif consecutive_losses >= self.settings.max_consecutive_losses:
-            level = RiskLevel.HALTED
-            entries_allowed = False
-            reasons.append("max_consecutive_losses_reached")
-        elif len(open_positions) >= self.settings.max_open_positions:
-            level = RiskLevel.RESTRICTED
-            entries_allowed = False
-            reasons.append("max_open_positions_reached")
-        elif open_risk_pct >= self.settings.max_concurrent_risk:
-            level = RiskLevel.RESTRICTED
-            entries_allowed = False
-            reasons.append("max_concurrent_risk_reached")
-        elif daily_dd_pct >= self.settings.max_daily_loss * 0.65 or consecutive_losses >= max(2, self.settings.max_consecutive_losses - 2):
-            level = RiskLevel.ELEVATED
-            reasons.append("elevated_drawdown_or_loss_streak_throttle")
+        if self.settings.enforce_portfolio_caps:
+            if daily_dd_pct >= self.settings.max_daily_loss:
+                level = RiskLevel.HALTED
+                entries_allowed = False
+                reasons.append("max_daily_loss_reached")
+            elif consecutive_losses >= self.settings.max_consecutive_losses:
+                level = RiskLevel.HALTED
+                entries_allowed = False
+                reasons.append("max_consecutive_losses_reached")
+            elif len(open_positions) >= self.settings.max_open_positions:
+                level = RiskLevel.RESTRICTED
+                entries_allowed = False
+                reasons.append("max_open_positions_reached")
+            elif open_risk_pct >= self.settings.max_concurrent_risk:
+                level = RiskLevel.RESTRICTED
+                entries_allowed = False
+                reasons.append("max_concurrent_risk_reached")
+            elif (
+                daily_dd_pct >= self.settings.max_daily_loss * 0.65
+                or consecutive_losses >= max(2, self.settings.max_consecutive_losses - 2)
+            ):
+                level = RiskLevel.ELEVATED
+                reasons.append("elevated_drawdown_or_loss_streak_throttle")
 
         return RiskState(
             level=level,
@@ -82,16 +86,19 @@ class RiskManager:
     ) -> tuple[float, float]:
         """Compute risk-bounded stake and dollar risk (strictly anti-martingale)."""
         base_risk_pct = self.settings.risk_per_trade * symbol_cfg.risk_multiplier
-        if risk_state.level == RiskLevel.ELEVATED:
+        if self.settings.enforce_portfolio_caps and risk_state.level == RiskLevel.ELEVATED:
             base_risk_pct *= 0.50
 
         target_risk = balance * base_risk_pct
-        # Clamp stake within configured min/max and remaining concurrent risk budget
-        remaining_budget = max(
-            0.0,
-            (self.settings.max_concurrent_risk * balance) - (risk_state.open_risk_pct * balance),
-        )
-        risk_amount = min(target_risk, remaining_budget) if remaining_budget > 0 else 0.0
+        if self.settings.enforce_portfolio_caps:
+            remaining_budget = max(
+                0.0,
+                (self.settings.max_concurrent_risk * balance) - (risk_state.open_risk_pct * balance),
+            )
+            risk_amount = min(target_risk, remaining_budget) if remaining_budget > 0 else 0.0
+        else:
+            risk_amount = target_risk
+
         stake = max(self.settings.min_stake, min(self.settings.max_stake, risk_amount))
         if risk_amount < self.settings.min_stake:
             return 0.0, 0.0
@@ -107,7 +114,7 @@ class RiskManager:
         *,
         is_recovery_averaging: bool = False,
     ) -> RiskApproval:
-        """Validate new entry against all risk rules, exposure caps, and prohibited practices."""
+        """Validate new entry against signal/position nature and optional portfolio caps."""
         if is_recovery_averaging:
             return RiskApproval(False, 0.0, 0.0, ("averaging_down_prohibited",))
 
@@ -117,7 +124,7 @@ class RiskManager:
         if signal.signal_type not in (SignalType.NEW_OPPORTUNITY, SignalType.CONTINUATION) or signal.direction is None:
             return RiskApproval(False, 0.0, 0.0, ("signal_not_actionable",))
 
-        if not risk_state.entries_allowed:
+        if self.settings.enforce_portfolio_caps and not risk_state.entries_allowed:
             return RiskApproval(False, 0.0, 0.0, risk_state.reasons or ("entries_blocked_by_risk_state",))
 
         if self.settings.abnormal_volatility_block and market_state.regime == MarketRegime.ABNORMAL_VOLATILITY:
@@ -128,11 +135,12 @@ class RiskManager:
         if len(sym_positions) >= max_sym_exp:
             return RiskApproval(False, 0.0, 0.0, ("max_symbol_exposure_reached",))
 
-        group_positions = [
-            p for p in open_positions if p.metadata.get("submarket") == symbol_cfg.submarket
-        ]
-        if len(group_positions) >= self.settings.max_per_group_open:
-            return RiskApproval(False, 0.0, 0.0, ("max_group_exposure_reached",))
+        if self.settings.enforce_portfolio_caps:
+            group_positions = [
+                p for p in open_positions if p.metadata.get("submarket") == symbol_cfg.submarket
+            ]
+            if len(group_positions) >= self.settings.max_per_group_open:
+                return RiskApproval(False, 0.0, 0.0, ("max_group_exposure_reached",))
 
         stake, risk_amount = self.size_position(signal, symbol_cfg, risk_state.balance, risk_state)
         if stake <= 0.0:

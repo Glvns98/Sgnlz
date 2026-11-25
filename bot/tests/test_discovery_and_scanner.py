@@ -93,7 +93,6 @@ def test_parse_active_symbols_routes_all_groups_and_skips_suspended() -> None:
 
 
 def test_risk_manager_enforces_max_per_group_open() -> None:
-    rm = RiskManager(RiskSettings(max_open_positions=8, max_concurrent_risk=0.10, max_per_group_open=2))
     now = datetime(2026, 1, 1, tzinfo=UTC)
 
     open_pos = [
@@ -157,7 +156,25 @@ def test_risk_manager_enforces_max_per_group_open() -> None:
         suggested_stop=98.0,
         initial_risk_distance=2.0,
     )
-    app_blocked = rm.check_entry_allowed(
+    rm_unthrottled = RiskManager(RiskSettings(max_open_positions=2, max_concurrent_risk=0.02, max_per_group_open=2))
+    app_unthrottled = rm_unthrottled.check_entry_allowed(
+        sig_same_group,
+        SymbolProfile(symbol="R_50", submarket="random_index"),
+        open_pos,
+        rs,
+        ms,
+    )
+    assert app_unthrottled.allowed
+
+    rm_capped = RiskManager(
+        RiskSettings(
+            enforce_portfolio_caps=True,
+            max_open_positions=8,
+            max_concurrent_risk=0.10,
+            max_per_group_open=2,
+        )
+    )
+    app_blocked = rm_capped.check_entry_allowed(
         sig_same_group,
         SymbolProfile(symbol="R_50", submarket="random_index"),
         open_pos,
@@ -183,7 +200,7 @@ def test_risk_manager_enforces_max_per_group_open() -> None:
         suggested_stop=98.0,
         initial_risk_distance=2.0,
     )
-    app_ok = rm.check_entry_allowed(
+    app_ok = rm_capped.check_entry_allowed(
         sig_other_group,
         SymbolProfile(symbol="BOOM1000", submarket="crash_index"),
         open_pos,

@@ -29,12 +29,13 @@ risk:
   risk_per_trade: 0.01
   min_stake: 1.0
   max_stake: 250.0
-  max_open_positions: 8
+  enforce_portfolio_caps: false
+  max_open_positions: 10000
   max_symbol_exposure: 1
-  max_per_group_open: 2
-  max_concurrent_risk: 0.08
-  max_daily_loss: 0.05
-  max_consecutive_losses: 5
+  max_per_group_open: 10000
+  max_concurrent_risk: 100.0
+  max_daily_loss: 1.0
+  max_consecutive_losses: 10000
   allow_martingale: false
   allow_averaging_down: false
   abnormal_volatility_block: true
@@ -73,7 +74,7 @@ notifications:
   reddit_username: ${REDDIT_USERNAME}
   reddit_password: ${REDDIT_PASSWORD}
   reddit_outbox_dir: outbox/reddit
-  max_signals_per_sweep: 6
+  max_signals_per_sweep: 10000
   send_market_pulses: false
   send_unentered_analysis_signals: false
   min_stop_change_r_for_alert: 0.05

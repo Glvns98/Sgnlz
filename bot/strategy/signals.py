@@ -64,7 +64,7 @@ class SignalEngine:
             return self._no_action(state, symbol_cfg, ("compression_active_wait_release",))
 
         last_opp = self._last_opportunity_bar.get(sym, -9999)
-        if (bar_idx - last_opp) <= symbol_cfg.cooldown_bars:
+        if symbol_cfg.cooldown_bars > 0 and (bar_idx - last_opp) <= symbol_cfg.cooldown_bars:
             return self._no_action(state, symbol_cfg, ("cooldown_active",))
 
         direction, confidence, reasons = self._score_opportunity(state, symbol_cfg)

@@ -247,7 +247,7 @@ class EngineOrchestrator:
                 candidates.append((sig, latest_st, profile))
 
         candidates.sort(key=lambda item: item[0].confidence, reverse=True)
-        for sig, latest_st, profile in candidates[: self.settings.notifications.max_signals_per_sweep]:
+        for sig, latest_st, profile in candidates:
             rs = self._current_risk_state()
             receipt = await self.execution.submit_signal(
                 sig, profile, self.open_positions, rs, latest_st

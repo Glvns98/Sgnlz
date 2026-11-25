@@ -47,7 +47,23 @@ def test_risk_prohibits_martingale_and_enforces_circuit_breakers() -> None:
     with pytest.raises(ValueError, match="averaging down"):
         RiskSettings(allow_averaging_down=True)
 
-    rm = RiskManager(RiskSettings(account_balance=10000.0, max_daily_loss=0.05, max_consecutive_losses=3))
+    # Default: valid signals fire regardless of open counts, daily loss, or streak
+    rm_unthrottled = RiskManager(
+        RiskSettings(account_balance=10000.0, max_daily_loss=0.05, max_consecutive_losses=3)
+    )
+    rs_unthrottled = rm_unthrottled.evaluate_risk_state(9400.0, [], daily_pnl=-600.0, consecutive_losses=4)
+    assert rs_unthrottled.level == RiskLevel.NORMAL
+    assert rs_unthrottled.entries_allowed
+
+    # Optional portfolio caps still work when explicitly enabled
+    rm = RiskManager(
+        RiskSettings(
+            account_balance=10000.0,
+            enforce_portfolio_caps=True,
+            max_daily_loss=0.05,
+            max_consecutive_losses=3,
+        )
+    )
     halted_dd = rm.evaluate_risk_state(9400.0, [], daily_pnl=-600.0, consecutive_losses=1)
     assert halted_dd.level == RiskLevel.HALTED
     assert not halted_dd.entries_allowed

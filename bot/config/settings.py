@@ -74,12 +74,13 @@ class RiskSettings(BaseModel):
     risk_per_trade: float = Field(default=0.01, gt=0.0, le=0.10)
     min_stake: float = Field(default=1.0, gt=0.0)
     max_stake: float = Field(default=250.0, gt=0.0)
-    max_open_positions: int = Field(default=3, ge=1)
+    enforce_portfolio_caps: bool = False
+    max_open_positions: int = Field(default=10000, ge=1)
     max_symbol_exposure: int = Field(default=1, ge=1)
-    max_per_group_open: int = Field(default=2, ge=1)
-    max_concurrent_risk: float = Field(default=0.03, gt=0.0, le=0.25)
-    max_daily_loss: float = Field(default=0.05, gt=0.0, le=0.50)
-    max_consecutive_losses: int = Field(default=5, ge=1)
+    max_per_group_open: int = Field(default=10000, ge=1)
+    max_concurrent_risk: float = Field(default=100.0, gt=0.0, le=1000.0)
+    max_daily_loss: float = Field(default=1.0, gt=0.0, le=10.0)
+    max_consecutive_losses: int = Field(default=10000, ge=1)
     allow_martingale: bool = False
     allow_averaging_down: bool = False
     abnormal_volatility_block: bool = True
@@ -131,7 +132,7 @@ class NotificationSettings(BaseModel):
     reddit_username: str | None = None
     reddit_password: str | None = None
     reddit_outbox_dir: str = "outbox/reddit"
-    max_signals_per_sweep: int = Field(default=6, ge=1)
+    max_signals_per_sweep: int = Field(default=10000, ge=1)
     send_market_pulses: bool = False
     send_unentered_analysis_signals: bool = False
     min_stop_change_r_for_alert: float = Field(default=0.05, ge=0.0)
@@ -165,7 +166,7 @@ class SymbolProfile(BaseModel):
     atr_stop_multiple: float = Field(default=2.0, gt=0.5, le=10.0)
     trailing_factor: float = Field(default=1.25, gt=0.3, le=5.0)
     min_confidence: float = Field(default=0.58, ge=0.0, le=1.0)
-    cooldown_bars: int = Field(default=4, ge=0)
+    cooldown_bars: int = Field(default=0, ge=0)
     max_exposure: int = Field(default=1, ge=1)
     spread_bps: float = Field(default=3.0, ge=0.0)
     slippage_bps: float = Field(default=1.5, ge=0.0)
