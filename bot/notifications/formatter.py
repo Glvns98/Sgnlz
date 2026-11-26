@@ -228,28 +228,48 @@ def _confluence_checks(
 
     checks = [
         (
-            "Tier 1 · Squeeze Release / Expansion (⚫➜⚪)",
+            "Squeeze Expansion Active (⚪ Gray Cross)",
             state.squeeze.sqz_fired or state.squeeze_state == SqueezeState.SQUEEZE_OFF,
         ),
         (
-            "Tier 2 · Histogram Directional Bias (>0 / <0)",
-            (is_buy and state.squeeze.val > 0) or ((not is_buy) and state.squeeze.val < 0),
+            "Early Trend Trigger Fired (🔥 Fire / ⚡ Flip / 🔁 Bounce)",
+            any(
+                r in signal.reasons
+                for r in (
+                    "squeeze_fire_early_entry",
+                    "zero_line_flip_early_entry",
+                    "zero_line_bounce_resumption",
+                    "squeeze_release_bar",
+                )
+            ),
         ),
         (
-            "Tier 3 · Momentum Accelerating (🟩 Lime / 🟥 Red)",
-            (is_buy and state.has_transition(MomentumTransition.BULLISH_ACCELERATION))
-            or ((not is_buy) and state.has_transition(MomentumTransition.BEARISH_ACCELERATION)),
+            "Momentum Accelerating (🟩 Lime / 🟥 Red)",
+            (
+                is_buy
+                and (
+                    state.squeeze.bcolor == "lime"
+                    or state.has_transition(MomentumTransition.BULLISH_ACCELERATION)
+                )
+            )
+            or (
+                (not is_buy)
+                and (
+                    state.squeeze.bcolor == "red"
+                    or state.has_transition(MomentumTransition.BEARISH_ACCELERATION)
+                )
+            ),
         ),
         (
-            "Tier 4 · 15m Price Structure Confirmed",
+            "Trigger Candle Confirms Direction",
             state.structure_bullish_confirmed if is_buy else state.structure_bearish_confirmed,
         ),
         (
-            "Tier 5 · Clean Location (Room to S/R Barrier)",
-            (state.overhead_room_atr >= 0.50) if is_buy else (state.underneath_room_atr >= 0.50),
+            "Fresh Unexhausted Move (No Late Chasing)",
+            state.accel_run_bars <= 2,
         ),
         (
-            "Tier 6 · Asymmetric Structural Stop & Regime",
+            "Clean Volatility & Structural Stop",
             state.regime.value != "ABNORMAL_VOLATILITY" and signal.confidence >= 0.58,
         ),
     ]

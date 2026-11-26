@@ -590,7 +590,17 @@ class EngineOrchestrator:
         already_notified: bool,
         entered_momentum_decay: bool,
     ) -> bool:
-        if not self.settings.notifications.notify_thesis_warnings or already_notified:
+        if not self.settings.notifications.notify_thesis_warnings:
+            return False
+
+        # Reset warning escalation floor when momentum cleanly resumes acceleration
+        if signal.signal_type == SignalType.MOMENTUM_STRENGTHENING:
+            if int(pos.metadata.get("last_thesis_warning_rank", 0)) > 0:
+                pos.metadata["last_thesis_warning_rank"] = 0
+                self.storage.upsert_position(pos)
+            return False
+
+        if already_notified:
             return False
 
         if signal.signal_type == SignalType.EXIT_WARNING:
@@ -607,8 +617,21 @@ class EngineOrchestrator:
             priority = AlertPriority.WARNING
             note = "Squeeze momentum crossed or showed exhaustion against this position. Watch protective stop closely."
             label = "reversal_warning"
+        elif signal.signal_type == SignalType.MOMENTUM_WEAKENING or entered_momentum_decay:
+            warn_kind = "MOMENTUM_WEAKENING"
+            rank = 1
+            headline = "🟡 TREND WEAKENING · MOMENTUM FADING"
+            priority = AlertPriority.NOTICE
+            note = (
+                "Histogram shifted from bright to dark (deceleration bar). "
+                "Conservative traders can scale out or take profit now; "
+                "stop is actively guarded for a 2nd fade bar or structure break."
+                if pos.unrealized_r() > 0
+                else "Trend velocity started weakening before target. "
+                "Watch protective stop closely and prepare for early exit if weakness continues."
+            )
+            label = "momentum_weakening"
         else:
-            # MOMENTUM_DECAY and routine softening are tracked silently without noisy alerts
             return False
 
         prev_rank = int(pos.metadata.get("last_thesis_warning_rank", 0))

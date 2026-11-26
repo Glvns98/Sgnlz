@@ -43,7 +43,7 @@ class SignalEngine:
 
         snap = state.squeeze
         if snap.sqz_fired:
-            self._recent_fired_bars[sym] = 3
+            self._recent_fired_bars[sym] = 2
         elif sym in self._recent_fired_bars and self._recent_fired_bars[sym] > 0:
             self._recent_fired_bars[sym] -= 1
 
@@ -74,33 +74,32 @@ class SignalEngine:
         self._last_opportunity_bar[sym] = bar_idx
 
         stop_dist = risk_dist
-        if (
-            direction == TradeDirection.BUY
-            and state.recent_structure_low > 0
-            and state.recent_structure_low < state.close
-        ):
-            struct_dist = (state.close - state.recent_structure_low) + 0.35 * range_ma
-            stop_dist = min(max(struct_dist, 0.85 * risk_dist), 1.50 * risk_dist)
-        elif direction == TradeDirection.SELL and state.recent_structure_high > state.close:
-            struct_dist = (state.recent_structure_high - state.close) + 0.35 * range_ma
-            stop_dist = min(max(struct_dist, 0.85 * risk_dist), 1.50 * risk_dist)
+        recently_fired = snap.sqz_fired or self._recent_fired_bars.get(sym, 0) > 0
+        if direction == TradeDirection.BUY:
+            candidates = [p for p in (state.recent_structure_low, state.compression_low if recently_fired else 0.0) if 0.0 < p < state.close]
+            if candidates:
+                anchor = max(candidates) if len(candidates) > 1 else candidates[0]
+                struct_dist = (state.close - anchor) + 0.25 * range_ma
+                min_d = range_ma if recently_fired else 0.85 * risk_dist
+                stop_dist = min(max(struct_dist, min_d), 1.50 * risk_dist)
+        else:
+            candidates = [p for p in (state.recent_structure_high, state.compression_high if recently_fired else 0.0) if p > state.close]
+            if candidates:
+                anchor = min(candidates) if len(candidates) > 1 else candidates[0]
+                struct_dist = (anchor - state.close) + 0.25 * range_ma
+                min_d = range_ma if recently_fired else 0.85 * risk_dist
+                stop_dist = min(max(struct_dist, min_d), 1.50 * risk_dist)
 
         suggested_stop = state.close - stop_dist if direction == TradeDirection.BUY else state.close + stop_dist
-        sig_type = (
-            SignalType.NEW_OPPORTUNITY
-            if (snap.sqz_fired or self._recent_fired_bars.get(sym, 0) > 0)
-            else SignalType.CONTINUATION
-        )
-        if snap.sqz_fired:
-            entry_style = "ENTRY_A_IGNITION"
-        elif (
-            self._recent_fired_bars.get(sym, 0) > 0
-            or (direction == TradeDirection.BUY and state.swing_high > 0 and state.close >= state.swing_high)
-            or (direction == TradeDirection.SELL and state.swing_low > 0 and state.close <= state.swing_low)
-        ):
-            entry_style = "ENTRY_B_CONFIRMATION"
+        if "squeeze_fire_early_entry" in reasons:
+            entry_style = "SQUEEZE_FIRE"
+            sig_type = SignalType.NEW_OPPORTUNITY
+        elif "zero_line_flip_early_entry" in reasons:
+            entry_style = "ZERO_LINE_FLIP"
+            sig_type = SignalType.NEW_OPPORTUNITY
         else:
-            entry_style = "ENTRY_C_RETEST"
+            entry_style = "ZERO_LINE_BOUNCE"
+            sig_type = SignalType.CONTINUATION
 
         sig_id = self._make_id(state, sig_type, direction)
         return TradeSignal(
@@ -125,8 +124,7 @@ class SignalEngine:
                 "entry_style": entry_style,
                 "engine_stage": state.engine_stage,
                 "systematic_state": state.systematic_state,
-                "overhead_room_atr": round(state.overhead_room_atr, 2),
-                "underneath_room_atr": round(state.underneath_room_atr, 2),
+                "accel_run_bars": state.accel_run_bars,
             },
         )
 
@@ -136,81 +134,71 @@ class SignalEngine:
         symbol_cfg: SymbolProfile,
     ) -> tuple[TradeDirection | None, float, list[str]]:
         snap = state.squeeze
-        reasons: list[str] = []
         recently_fired = snap.sqz_fired or self._recent_fired_bars.get(state.symbol, 0) > 0
 
-        if state.momentum_state in (MomentumState.STRONG_BULLISH, MomentumState.WEAK_BULLISH) and (
-            state.has_transition(MomentumTransition.BULLISH_ACCELERATION)
-            or state.has_transition(MomentumTransition.ZERO_CROSS_UP)
-        ):
+        if state.squeeze_state != SqueezeState.SQUEEZE_OFF and not snap.sqz_fired:
+            return None, 0.0, ["squeeze_not_off"]
+
+        bull_accel = (snap.bcolor == "lime" and snap.val > 0.0) or state.has_transition(MomentumTransition.ZERO_CROSS_UP)
+        bear_accel = (snap.bcolor == "red" and snap.val < 0.0) or state.has_transition(MomentumTransition.ZERO_CROSS_DOWN)
+
+        if bull_accel and not bear_accel:
             direction = TradeDirection.BUY
-        elif state.momentum_state in (MomentumState.STRONG_BEARISH, MomentumState.WEAK_BEARISH) and (
-            state.has_transition(MomentumTransition.BEARISH_ACCELERATION)
-            or state.has_transition(MomentumTransition.ZERO_CROSS_DOWN)
-        ):
+        elif bear_accel and not bull_accel:
             direction = TradeDirection.SELL
         else:
             return None, 0.0, ["momentum_not_accelerating"]
 
-        if state.squeeze_state != SqueezeState.SQUEEZE_OFF and not recently_fired:
-            return None, 0.0, ["squeeze_not_off"]
-
-        score = 0.42
-        if snap.sqz_fired:
-            score += 0.22
-            reasons.append("squeeze_release_bar")
-        elif recently_fired:
-            score += 0.16
-            reasons.append("recent_squeeze_release")
-        else:
-            score += 0.08
-            reasons.append("expansion_continuation")
-
-        if (direction == TradeDirection.BUY and state.momentum_state == MomentumState.STRONG_BULLISH) or (
-            direction == TradeDirection.SELL and state.momentum_state == MomentumState.STRONG_BEARISH
-        ):
-            score += 0.18
-            reasons.append("strong_aligned_momentum")
-        else:
-            score += 0.07
-            reasons.append("moderate_aligned_momentum")
-
-        if (direction == TradeDirection.BUY and state.has_transition(MomentumTransition.ZERO_CROSS_UP)) or (
-            direction == TradeDirection.SELL and state.has_transition(MomentumTransition.ZERO_CROSS_DOWN)
-        ):
-            score += 0.08
-            reasons.append("fresh_zero_cross")
-
-        if state.regime == MarketRegime.CHOP:
-            score -= 0.12
-            reasons.append("chop_penalty")
-
-        # Tier 4 — 15m Price Structure Confirmation
-        price_confirmed = (
-            state.structure_bullish_confirmed
-            if direction == TradeDirection.BUY
-            else state.structure_bearish_confirmed
-        )
-        if price_confirmed:
-            score += 0.06
-            reasons.append("tier4_price_structure_confirmed")
-        else:
-            score -= 0.14
-            reasons.append("unconfirmed_price_candle")
-
-        # Tier 5 — Location Filter (Setup A Breakout Room vs Setup B S/R Barrier Caution)
+        # Simple candle-close confirmation (Playbook Step 2 & Section 5)
         if direction == TradeDirection.BUY:
-            if state.overhead_room_atr < 0.50:
-                score -= 0.18
-                reasons.append("caution_overhead_resistance")
-            elif state.overhead_room_atr >= 0.85:
-                reasons.append("tier5_clean_location_room")
+            candle_ok = (state.close >= state.open) if state.open > 0 else state.structure_bullish_confirmed
         else:
-            if state.underneath_room_atr < 0.50:
-                score -= 0.18
-                reasons.append("caution_underlying_support")
-            elif state.underneath_room_atr >= 0.85:
-                reasons.append("tier5_clean_location_room")
+            candle_ok = (state.close <= state.open) if state.open > 0 else state.structure_bearish_confirmed
+        if not candle_ok:
+            return None, 0.0, ["trigger_candle_not_confirmed"]
+
+        nm_abs = abs(snap.normalized_momentum)
+        is_zero_flip = (
+            direction == TradeDirection.BUY and state.has_transition(MomentumTransition.ZERO_CROSS_UP)
+        ) or (
+            direction == TradeDirection.SELL and state.has_transition(MomentumTransition.ZERO_CROSS_DOWN)
+        )
+        is_sqz_fire = snap.sqz_fired or (recently_fired and state.accel_run_bars <= 2)
+        is_bounce = (
+            (direction == TradeDirection.BUY and state.prev_bcolor == "green" and snap.bcolor == "lime")
+            or (direction == TradeDirection.SELL and state.prev_bcolor == "maroon" and snap.bcolor == "red")
+            or (state.accel_run_bars == 1 and state.prev_bcolor is not None)
+        )
+
+        reasons: list[str] = []
+        if is_sqz_fire and nm_abs <= 1.85:
+            score = 0.78
+            reasons.append("squeeze_fire_early_entry")
+            if snap.squeeze_bars >= 5:
+                score += 0.08
+                reasons.append("coiled_squeeze_cluster")
+            if is_zero_flip:
+                score += 0.08
+                reasons.append("fresh_zero_cross")
+        elif is_zero_flip and nm_abs <= 1.40:
+            score = 0.74
+            reasons.extend(["zero_line_flip_early_entry", "fresh_zero_cross"])
+            if recently_fired:
+                score += 0.08
+                reasons.append("recent_squeeze_release")
+            if nm_abs <= 0.65:
+                score += 0.06
+                reasons.append("early_trend_ignition")
+        elif is_bounce and nm_abs <= 1.15:
+            score = 0.68
+            reasons.append("zero_line_bounce_resumption")
+            if nm_abs <= 0.55:
+                score += 0.08
+                reasons.append("fresh_bounce_near_zero")
+            if state.regime == MarketRegime.EXPANSION_TREND:
+                score += 0.04
+        else:
+            return None, 0.0, ["late_mid_trend_already_running"]
 
         return direction, max(0.0, min(1.0, score)), reasons
 

@@ -167,6 +167,24 @@ def test_five_level_professional_exit_hierarchy() -> None:
     d_l2 = mgr.evaluate(pos, ms_l2)
     assert d_l2.action in (ManagementAction.TIGHTEN_STOP, ManagementAction.REDUCE)
 
+    # Playbook Step 4: 2-bar consecutive deceleration at >= +0.50R when stalling -> exits cleanly
+    pos_pb = _make_buy_position(entry=100.0, stop=98.0)
+    pos_pb.bars_held = 3
+    pos_pb.decay_bars = 2
+    pos_pb.update_mark(101.2, 101.4, 100.6, pos_pb.opened_at + timedelta(minutes=45), is_new_bar=False)
+    ms_pb = make_market_state(
+        close=101.2,
+        val=1.1,
+        prev_val=1.5,
+        momentum_state=MomentumState.WEAK_BULLISH,
+        transitions=(MomentumTransition.BULLISH_DECELERATION,),
+        price_progressing_bull=False,
+        structure_broken_bull=False,
+    )
+    d_pb = mgr.evaluate(pos_pb, ms_pb)
+    assert d_pb.action == ManagementAction.EXIT
+    assert d_pb.exit_reason == ExitReason.MOMENTUM_DETERIORATION
+
     # Level 3: Momentum fade + structural failure -> immediate MOMENTUM_DETERIORATION exit
     ms_l3 = make_market_state(
         close=100.8,

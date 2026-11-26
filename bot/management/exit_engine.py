@@ -205,6 +205,27 @@ class ExitEngine:
                 thesis_status="INVALIDATED",
             )
 
+        # Playbook Step 4 — 2-Bar Consecutive Deceleration Exit (lock profitable move before reversal)
+        if (
+            fading_momentum
+            and position.decay_bars >= self.settings.momentum_exit_min_decay_bars
+            and cur_r >= 0.50
+            and (
+                price_stalling
+                or position.profit_giveback_ratio() >= 0.25
+                or position.decay_bars >= self.settings.momentum_exit_min_decay_bars + 1
+            )
+        ):
+            return ExitAssessment(
+                should_exit=True,
+                emergency=False,
+                tighten_stop=False,
+                reduce_risk=False,
+                exit_reason=ExitReason.MOMENTUM_DETERIORATION,
+                reason_code="playbook_two_bar_deceleration_exit",
+                thesis_status="INVALIDATED",
+            )
+
         # Level 2 — Momentum Fading + Price Stops Progressing -> Tighten / Reduce Risk
         if (
             fading_momentum
@@ -237,6 +258,18 @@ class ExitEngine:
                 reduce_risk=should_reduce,
                 exit_reason=None,
                 reason_code="sustained_momentum_decay",
+                thesis_status="UNCERTAIN",
+            )
+
+        # Level 1 — First Deceleration Bar in Strong Profit (+1.0R+) -> Tighten immediately
+        if fading_momentum and cur_r >= self.settings.profit_lock_trigger_r:
+            return ExitAssessment(
+                should_exit=False,
+                emergency=False,
+                tighten_stop=True,
+                reduce_risk=False,
+                exit_reason=None,
+                reason_code="level1_first_fade_tighten_profit_stop",
                 thesis_status="UNCERTAIN",
             )
 

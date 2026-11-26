@@ -145,6 +145,8 @@ class MarketStateSnapshot:
     price_progressing_bear: bool = True
     structure_broken_bull: bool = False
     structure_broken_bear: bool = False
+    prev_bcolor: str | None = None
+    accel_run_bars: int = 0
 
     def has_transition(self, transition: MomentumTransition) -> bool:
         return transition in self.transitions
@@ -173,6 +175,8 @@ class MarketStateSnapshot:
             "systematic_state": self.systematic_state,
             "overhead_room_atr": round(self.overhead_room_atr, 3),
             "underneath_room_atr": round(self.underneath_room_atr, 3),
+            "prev_bcolor": self.prev_bcolor,
+            "accel_run_bars": self.accel_run_bars,
         }
 
 

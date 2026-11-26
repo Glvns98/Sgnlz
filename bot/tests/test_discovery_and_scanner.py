@@ -476,24 +476,27 @@ async def test_position_updates_broadcast_and_early_warnings_fire_before_stop_lo
         assert "STOP TIGHTENED" in msg3["text"]
         assert msg3["reply_broadcast"] is True
 
-        # Bar 2: tiny TIGHTEN_STOP (< 0.10R) -> tracked silently
+        # Bar 2: tiny TIGHTEN_STOP (< 0.10R) suppressed, so Rank 1 TREND WEAKENING alert fires once
         c2 = Candle("R_100", 900, int((now + timedelta(minutes=30)).timestamp()), 99.40, 99.6, 99.0, 99.45, is_closed=True)
         await orch.on_closed_candle(c2)
         assert pos.current_stop == pytest.approx(98.25)
-        assert len(orch.notifier.slack.sent_messages) == 3
+        assert len(orch.notifier.slack.sent_messages) == 4
+        msg_weak = orch.notifier.slack.sent_messages[-1]
+        assert "TREND WEAKENING" in msg_weak["text"]
+        assert msg_weak["reply_broadcast"] is True
 
-        # Bar 3: MOMENTUM_DECAY alone -> tracked silently
+        # Bar 3: MOMENTUM_DECAY (same Rank 1 severity) -> suppressed by escalation-only mode
         pos.decay_bars = 1
         c3 = Candle("R_100", 900, int((now + timedelta(minutes=45)).timestamp()), 99.45, 100.3, 99.4, 100.20, is_closed=True)
         await orch.on_closed_candle(c3)
         assert pos.stage == TradeStage.MOMENTUM_DECAY
-        assert len(orch.notifier.slack.sent_messages) == 3
+        assert len(orch.notifier.slack.sent_messages) == 4
 
-        # Bar 4: REVERSAL_WARNING fires once
+        # Bar 4: Escalates Rank 1 -> Rank 2 REVERSAL_WARNING
         pos.decay_bars = 0
         c4 = Candle("R_100", 900, int((now + timedelta(minutes=60)).timestamp()), 100.0, 100.2, 99.3, 100.0, is_closed=True)
         await orch.on_closed_candle(c4)
-        assert len(orch.notifier.slack.sent_messages) == 4
+        assert len(orch.notifier.slack.sent_messages) == 5
         msg4 = orch.notifier.slack.sent_messages[-1]
         assert "REVERSAL WARNING" in msg4["text"]
         assert msg4["reply_broadcast"] is True
@@ -501,13 +504,13 @@ async def test_position_updates_broadcast_and_early_warnings_fire_before_stop_lo
         # Bar 5: Repeat REVERSAL_WARNING suppressed by escalation-only mode
         c5 = Candle("R_100", 900, int((now + timedelta(minutes=75)).timestamp()), 100.0, 100.2, 99.8, 100.0, is_closed=True)
         await orch.on_closed_candle(c5)
-        assert len(orch.notifier.slack.sent_messages) == 4
+        assert len(orch.notifier.slack.sent_messages) == 5
 
         # Bar 6: Escalates to EXIT_WARNING -> notifies at CRITICAL priority
         pos.current_stop = 99.95  # already tighter than 100.80 - 0.90 = 99.90 so HOLD lets EXIT_WARNING fire
         c6 = Candle("R_100", 900, int((now + timedelta(minutes=90)).timestamp()), 100.0, 100.9, 99.96, 100.80, is_closed=True)
         await orch.on_closed_candle(c6)
-        assert len(orch.notifier.slack.sent_messages) == 5
+        assert len(orch.notifier.slack.sent_messages) == 6
         msg5 = orch.notifier.slack.sent_messages[-1]
         assert "EXIT WARNING" in msg5["text"]
         assert msg5["reply_broadcast"] is True

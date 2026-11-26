@@ -33,6 +33,8 @@ class MarketStateEngine:
         self._last_comp_high: float = 0.0
         self._last_comp_low: float = 0.0
         self._was_sqz_on: bool = False
+        self._prev_bcolor: str | None = None
+        self._accel_run_bars: int = 0
         self._last_state: MarketStateSnapshot | None = None
 
     @property
@@ -51,6 +53,8 @@ class MarketStateEngine:
         self._last_comp_high = 0.0
         self._last_comp_low = 0.0
         self._was_sqz_on = False
+        self._prev_bcolor = None
+        self._accel_run_bars = 0
         self._last_state = None
 
     def update(self, candle: Candle) -> MarketStateSnapshot:
@@ -135,6 +139,13 @@ class MarketStateEngine:
         self._high_history.append(candle.high)
         self._low_history.append(candle.low)
 
+        prev_bcolor = self._prev_bcolor
+        if snap.bcolor in ("lime", "red"):
+            self._accel_run_bars = (self._accel_run_bars + 1) if (snap.bcolor == prev_bcolor) else 1
+        else:
+            self._accel_run_bars = 0
+        self._prev_bcolor = snap.bcolor
+
         state = MarketStateSnapshot(
             symbol=candle.symbol,
             timeframe_sec=candle.timeframe_sec,
@@ -165,6 +176,8 @@ class MarketStateEngine:
             price_progressing_bear=price_progressing_bear,
             structure_broken_bull=structure_broken_bull,
             structure_broken_bear=structure_broken_bear,
+            prev_bcolor=prev_bcolor,
+            accel_run_bars=self._accel_run_bars,
         )
         self._last_state = state
         return state
