@@ -358,7 +358,7 @@ def build_trade_opened_bundle(
         f"{why_lines_reddit}\n\n"
         f"📒 **Track Record:** {track_line}\n\n"
         "---\n\n"
-        "💬 *Follow this post: I monitor this scalp continuously until close and comment only on key moves (🛡️ BE · 🔒 Lock · 📐 Trail · ✂️ Trim · 🏁 Exit).* ⚠️ *Not financial advice.*"
+        "💬 *Follow this post: I monitor this scalp continuously until close and broadcast updates on key moves (🛡️ BE · 🔒 Lock · 📐 Trail · ⚡ Tighten · ⚠️ Risk · ✂️ Trim · 🏁 Exit).* ⚠️ *Not financial advice.*"
     )
 
     slack_blocks: list[dict[str, Any]] = [
@@ -416,7 +416,7 @@ def build_trade_opened_bundle(
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": "💬 *Follow this thread*: monitored live until close · alerts only on 🛡️ BE · 🔒 Lock · 📐 Trail · ✂️ Trim · 🏁 Exit",
+                    "text": "💬 *Follow this thread*: monitored live until close · broadcasts on 🛡️ BE · 🔒 Lock · 📐 Trail · ⚡ Tighten · ⚠️ Risk · ✂️ Trim · 🏁 Exit",
                 },
                 {
                     "type": "mrkdwn",
@@ -524,6 +524,91 @@ def build_management_comment_bundle(
     ]
 
     slack_text = f"{icon} {action_title} · {position.symbol} · Stop {old_px} ➜ {new_px} · {cur:+.2f}R"
+    return CommentBundle(reddit_markdown=reddit_md, slack_text=slack_text, slack_blocks=slack_blocks)
+
+
+def build_position_warning_comment_bundle(
+    position: Position,
+    market_state: MarketStateSnapshot,
+    symbol_cfg: SymbolProfile,
+    *,
+    warning_kind: str,
+    headline: str,
+    note: str,
+    detail: str = "",
+) -> CommentBundle:
+    """Format an early-warning position comment without matching final-exit text."""
+    emoji, dir_label = _dir_meta(position.direction)
+    cur = position.unrealized_r()
+    stop_r = position.r_for_price(position.current_stop)
+    remaining_to_stop_r = max(0.0, cur - stop_r)
+    tf_min = max(1, symbol_cfg.primary_timeframe // 60)
+    dur_str = _duration(position.bars_held * tf_min)
+
+    entry_px = format_price(position.entry_price)
+    cur_px = format_price(position.current_price)
+    stop_px = format_price(position.current_stop)
+    detail_line = detail.strip() or (
+        f"Kind: {warning_kind} · Squeeze: {market_state.squeeze_state.value} · "
+        f"Momentum: {market_state.momentum_state.value}"
+    )
+
+    reddit_md = (
+        f"### {headline} · {emoji} {dir_label} `{position.symbol}`\n"
+        f"📉 **Live PnL:** `{cur:+.2f}R`  ·  📏 **Buffer to Stop:** `{remaining_to_stop_r:.2f}R`\n\n"
+        f"> 💡 {note}\n"
+        f"> {detail_line}\n\n"
+        f"- 📍 **Entry:** `{entry_px}`  ·  💹 **Now:** `{cur_px}` (`{cur:+.2f}R`)\n"
+        f"- 🛡️ **Stop:** `{stop_px}` (`{stop_r:+.2f}R`)  ·  📏 **Buffer to Stop:** `{remaining_to_stop_r:.2f}R`\n"
+        f"- ⏱️ **Elapsed:** {dur_str}  ·  📈 **Peak:** `{position.mfe_r:+.2f}R`  ·  📉 **Dip:** `{position.mae_r:+.2f}R`"
+    )
+
+    note_block_text = f"> 💡 {note}"
+    if detail_line:
+        note_block_text = f"{note_block_text}\n{detail_line}"
+
+    slack_blocks: list[dict[str, Any]] = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    f"*{headline}*  ·  {emoji} {dir_label} `{position.symbol}`\n"
+                    f"📉 Live PnL *{cur:+.2f}R*  ·  📏 Buffer to Stop `{remaining_to_stop_r:.2f}R`"
+                )[:2900],
+            },
+        },
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": note_block_text[:2900]},
+        },
+        {
+            "type": "section",
+            "fields": [
+                {"type": "mrkdwn", "text": f"*📍 Entry*\n`{entry_px}`"},
+                {"type": "mrkdwn", "text": f"*💹 Now*\n`{cur_px}` ({cur:+.2f}R)"},
+                {"type": "mrkdwn", "text": f"*🛡️ Stop*\n`{stop_px}` ({stop_r:+.2f}R)"},
+                {"type": "mrkdwn", "text": f"*📏 Buffer to Stop*\n`{remaining_to_stop_r:.2f}R`"},
+            ],
+        },
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"⏱️ {dur_str}  ·  📈 Peak `{position.mfe_r:+.2f}R`  ·  "
+                        f"📉 Dip `{position.mae_r:+.2f}R`  ·  🆔 `{position.trade_id}`"
+                    ),
+                }
+            ],
+        },
+    ]
+
+    slack_text = (
+        f"{headline} · {position.symbol} · {cur:+.2f}R · "
+        f"Stop {stop_px} ({remaining_to_stop_r:.2f}R buffer)"
+    )
     return CommentBundle(reddit_markdown=reddit_md, slack_text=slack_text, slack_blocks=slack_blocks)
 
 

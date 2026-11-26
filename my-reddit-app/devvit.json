@@ -86,6 +86,20 @@
         "location": "subreddit",
         "forUserType": "user",
         "endpoint": "/internal/menu/quick-scan"
+      },
+      {
+        "label": "🔔 Enable Live Trade Push Alerts",
+        "description": "Receive instant Reddit push & DM alerts on every position update, warning, and exit",
+        "location": "subreddit",
+        "forUserType": "user",
+        "endpoint": "/internal/menu/enable-alerts"
+      },
+      {
+        "label": "🔕 Disable Live Trade Push Alerts",
+        "description": "Stop receiving automatic Reddit push & DM alerts for position updates",
+        "location": "subreddit",
+        "forUserType": "user",
+        "endpoint": "/internal/menu/disable-alerts"
       }
     ]
   },
@@ -149,6 +163,24 @@
         "type": "boolean",
         "label": "Enable !scan / !calc / !status / !stats Comment Commands",
         "helpText": "Allow members to run !scan CRASH500, !calc R_100 1000 1, !open, !edges, !stats in comments.",
+        "defaultValue": true
+      },
+      "alertUsernames": {
+        "type": "string",
+        "label": "Reddit Usernames for Instant Position Alerts",
+        "helpText": "Comma-separated Reddit usernames (without u/, e.g. Gelvinus) who receive instant DM & mention alerts on every entered position update.",
+        "defaultValue": ""
+      },
+      "dmPositionUpdates": {
+        "type": "boolean",
+        "label": "Send Reddit Private Messages on Position Updates",
+        "helpText": "Send a Reddit DM with direct post link to configured alert usernames and !follow subscribers on every management move & early warning.",
+        "defaultValue": true
+      },
+      "mentionOnUpdates": {
+        "type": "boolean",
+        "label": "Ping Subscribers (u/username) in Lifecycle Comments",
+        "helpText": "Include up to 3 u/username pings in each trade update comment so Reddit sends native inbox/push notifications.",
         "defaultValue": true
       },
       "enabledChannels": {

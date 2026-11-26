@@ -164,7 +164,7 @@ export function formatSignalPostBody(sig: SignalDto): string {
   lines.push(
     '',
     '---',
-    `*Live monitoring is ON: TP1/TP2/TP3, SL→BE, trailing stops, and early exits will be commented directly below this post. Comment \`!calc ${sig.symbol} 1000 1\` for exact position sizing or \`!scan ${sig.symbol}\` for a live refresh. Not financial advice.*`
+    `*Live monitoring is ON: TP1/TP2/TP3, SL→BE, trailing stops, risk warnings, and early exits will be commented directly below this post. Comment \`!follow\` to get instant reply & DM alerts on every move, \`!calc ${sig.symbol} 1000 1\` for sizing, or \`!scan ${sig.symbol}\` for a live refresh. Not financial advice.*`
   );
   return lines.join('\n');
 }
@@ -458,6 +458,8 @@ export function formatOverviewComment(ov: BridgeOverviewDto, mode: 'status' | 'o
 export function formatHelpComment(): string {
   return [
     '### 🤖 Cerynaean Hind — Reddit Commands (`r/GlvnsOrg`)',
+    '- `!follow` (or `!entered`) — Subscribe to a signal post for instant reply + DM alerts on every management move & warning until close',
+    '- `!unfollow` (or `!exited`) — Unsubscribe from alerts on that signal post',
     '- `!scan <symbol>` — Live Strategy v3 30m/1H read & blockers (e.g. `!scan EURUSD`)',
     '- `!calc <symbol> <equity> [risk%]` — Exact position size & TP1/TP2/TP3 `$` projections (e.g. `!calc EURUSD 1000 1`)',
     '- `!status` — Stream health, Strategy v3 status, symbols scanned',
@@ -465,6 +467,130 @@ export function formatHelpComment(): string {
     '- `!stats` — Live track record (Today UTC / 7d / All-Time, Profit Factor, Drawdown)',
     '- `!edges` — Validated net-of-cost walk-forward pairs',
     '',
-    '*Tip: Open the pinned **Interactive Command Center** post to browse all 13 market channels live, manage your personal watchlist, log journal trades, and read the Trader Playbook.*',
+    '*Tip: Open the subreddit menu (`🔔 Enable Live Trade Push Alerts`) to opt in to live push notifications for all entered positions.*',
   ].join('\n');
+}
+
+export function parseAlertUsernames(raw: unknown): string[] {
+  if (typeof raw !== 'string' || !raw.trim()) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const token of raw.split(/[\s,;]+/)) {
+    const cleaned = token.trim().replace(/^\/?u\//i, '');
+    if (!cleaned) continue;
+    if (!/^[A-Za-z0-9_-]{3,24}$/.test(cleaned)) continue;
+    const lower = cleaned.toLowerCase();
+    if (lower === 'cerynaean-hind') continue;
+    if (seen.has(lower)) continue;
+    seen.add(lower);
+    out.push(cleaned);
+  }
+  return out;
+}
+
+export function buildLiveFlairText(baseFlair: string, kindTag: string, rLabel: string): string {
+  const tag = (kindTag || 'UPDATE').trim();
+  const r = (rLabel || '').trim();
+  const suffix = r ? `${tag} (${r})` : tag;
+  return `${baseFlair} · ${suffix}`.slice(0, 64);
+}
+
+export function appendRedditMentions(body: string, usernames: string[]): string {
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of usernames) {
+    const clean = raw.trim().replace(/^\/?u\//i, '');
+    if (!clean) continue;
+    const lower = clean.toLowerCase();
+    if (lower === 'cerynaean-hind' || seen.has(lower)) continue;
+    seen.add(lower);
+    unique.push(clean);
+    if (unique.length >= 3) break;
+  }
+  if (!unique.length) return body;
+  const pings = unique.map((u) => `u/${u}`).join(' · ');
+  return `${body}\n\n---\n🔔 *Alert:* ${pings}`;
+}
+
+export function formatLifecycleDm(params: {
+  subredditName: string;
+  postId: string;
+  commentId?: string;
+  title: string;
+  kindTag: string;
+  rLabel: string;
+  body: string;
+}): { subject: string; text: string } {
+  const postShort = params.postId.replace(/^t3_/, '');
+  const commentShort = params.commentId ? params.commentId.replace(/^t1_/, '') : '';
+  const url = commentShort
+    ? `https://www.reddit.com/r/${params.subredditName}/comments/${postShort}/_/${commentShort}/`
+    : `https://www.reddit.com/r/${params.subredditName}/comments/${postShort}/`;
+
+  const rPart = params.rLabel ? ` (${params.rLabel})` : '';
+  const subject = `[r/${params.subredditName}] ${params.kindTag}${rPart} — ${params.title}`.slice(0, 100);
+  const text = [
+    `**${params.kindTag}${rPart}** on **${params.title}**`,
+    '',
+    `👉 [Open live trade thread on r/${params.subredditName}](${url})`,
+    '',
+    '---',
+    '',
+    params.body.slice(0, 8000),
+    '',
+    '---',
+    '*Reply `!unfollow` on the post to stop receiving alerts for this position.*',
+  ].join('\n');
+  return { subject, text };
+}
+
+const IMPORTANT_LIFECYCLE_TAGS = new Set([
+  'BREAKEVEN',
+  'BREAKEVEN SECURED',
+  'PROFIT LOCKED',
+  'TRAILING STOP',
+  'TRAILING STOP MOVED',
+  'STOP TIGHTENED',
+  'PARTIAL',
+  'PARTIAL TAKEN',
+  'RISK WARNING',
+  'DANGER ZONE',
+  'REVERSAL WARNING',
+  'EXIT WARNING',
+  'TP1',
+  'TP2',
+  'TP3',
+  'STOP LOSS',
+  'EARLY EXIT',
+  'TIME EXPIRY',
+  'MANUAL CLOSE',
+  'WIN',
+  'SCRATCH',
+  'LOSS CAPPED',
+]);
+
+export function isImportantLifecycleEvent(kindTag: string, isFinal: boolean): boolean {
+  if (isFinal) return true;
+  return IMPORTANT_LIFECYCLE_TAGS.has((kindTag || '').trim().toUpperCase());
+}
+
+export function formatPushAlert(params: {
+  title: string;
+  kindTag: string;
+  rLabel: string;
+  body: string;
+}): { title: string; body: string } {
+  const rPart = params.rLabel ? ` (${params.rLabel})` : '';
+  const title = `${params.kindTag}${rPart} · ${params.title}`.slice(0, 100);
+  const plainBody = params.body
+    .replace(/^#{1,6}\s*/gm, '')
+    .replace(/[*_`>]/g, '')
+    .replace(/\r?\n+/g, ' · ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+    .slice(0, 200);
+  return {
+    title,
+    body: plainBody || title,
+  };
 }

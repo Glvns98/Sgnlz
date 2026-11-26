@@ -127,24 +127,42 @@ class NotificationRouter:
         if not self._can_send(dedupe_key, priority, now):
             return SlackDeliveryResult(ok=False, error="cooldown_filtered"), RedditDeliveryResult(ok=False, error="cooldown_filtered")
 
+        mention = (self.settings.slack_alert_mention or "").strip()
+        final_slack_text = slack_text
+        final_slack_blocks = list(slack_blocks) if slack_blocks is not None else None
+        if mention and priority >= AlertPriority.WARNING:
+            if mention not in final_slack_text:
+                final_slack_text = f"{mention} {final_slack_text}"
+            if final_slack_blocks is not None:
+                final_slack_blocks.append(
+                    {
+                        "type": "context",
+                        "elements": [{"type": "mrkdwn", "text": f"🔔 {mention}"}],
+                    }
+                )
+
         self.dispatched_log.append(
             {"timestamp": now.isoformat(), "priority": priority.value, "key": dedupe_key, "trade_id": trade_id}
         )
         slack_res = SlackDeliveryResult(ok=False)
         if priority >= self.settings.min_slack_priority:
             slack_res = await self.slack.send(
-                slack_text,
+                final_slack_text,
                 channel=channel,
                 thread_ts=thread_ts,
                 reply_broadcast=reply_broadcast,
-                blocks=slack_blocks,
+                blocks=final_slack_blocks,
                 meta={"priority": priority.value, "trade_id": trade_id, "label": label},
             )
         reddit_res = RedditDeliveryResult(ok=False)
         if priority >= self.settings.min_reddit_priority:
+            reddit_mention = (self.settings.reddit_alert_mention or "").strip()
+            final_reddit_body = reddit_comment_body
+            if reddit_mention and reddit_mention.lower() not in final_reddit_body.lower():
+                final_reddit_body = f"{final_reddit_body}\n\n---\n🔔 *Alert:* {reddit_mention}"
             reddit_res = await self.reddit.publish_comment(
                 reddit_post_id,
-                reddit_comment_body,
+                final_reddit_body,
                 trade_id=trade_id,
                 label=label,
             )

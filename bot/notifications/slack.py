@@ -200,10 +200,11 @@ class SlackNotifier:
                         ok = bool(data.get("ok"))
                         if ok:
                             logger.info(
-                                "Slack message posted to %s (ts=%s, thread_ts=%s)",
+                                "Slack message posted to %s (ts=%s, thread_ts=%s, broadcast=%s)",
                                 data.get("channel"),
                                 data.get("ts"),
                                 thread_ts,
+                                reply_broadcast,
                             )
                             return SlackDeliveryResult(
                                 ok=True,

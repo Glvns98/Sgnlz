@@ -1,5 +1,5 @@
-import { reddit, redis, settings } from '@devvit/web/server';
-import type { T1, T3 } from '@devvit/shared-types/tid.js';
+import { notifications, reddit, redis, settings } from '@devvit/web/server';
+import type { T1, T2, T3 } from '@devvit/shared-types/tid.js';
 import { MARKET_CHANNELS, getChannelDef } from '../shared/channels.js';
 import type {
   BridgeOverviewDto,
@@ -11,7 +11,17 @@ import type {
   SignalCardPostData,
   SignalDto,
 } from '../shared/types.js';
-import { formatCalcComment, formatChannelDirectoryBody, formatHelpComment } from './formatters.js';
+import {
+  appendRedditMentions,
+  buildLiveFlairText,
+  formatCalcComment,
+  formatChannelDirectoryBody,
+  formatHelpComment,
+  formatLifecycleDm,
+  formatPushAlert,
+  isImportantLifecycleEvent,
+  parseAlertUsernames,
+} from './formatters.js';
 import {
   type ParsedSlackLifecycle,
   type ParsedSlackPulse,
@@ -299,6 +309,217 @@ async function ensureFlairApplied(
   }
 }
 
+interface ActiveTrackedPost {
+  channelId: string;
+  channelName: string;
+  parentTs: string;
+  postId: string;
+  symbol: string;
+  direction: string;
+  title: string;
+  createdEpoch: number;
+}
+
+interface PostFollower {
+  username: string;
+  commentId: string;
+  userId?: string;
+}
+
+const ACTIVE_POST_MAX_AGE_SEC = 72 * 3600;
+
+async function loadActiveTrackedPosts(): Promise<ActiveTrackedPost[]> {
+  const raw = await redis.get('ch:activePosts');
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const cutoff = Math.floor(Date.now() / 1000) - ACTIVE_POST_MAX_AGE_SEC;
+    return (parsed as ActiveTrackedPost[]).filter(
+      (p) => p && p.channelId && p.parentTs && p.postId && (p.createdEpoch || 0) >= cutoff
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function trackActivePost(entry: ActiveTrackedPost): Promise<void> {
+  const existing = await loadActiveTrackedPosts();
+  const filtered = existing.filter(
+    (p) => !(p.channelId === entry.channelId && p.parentTs === entry.parentTs)
+  );
+  filtered.push(entry);
+  await redis.set('ch:activePosts', JSON.stringify(filtered.slice(-50)));
+}
+
+async function untrackActivePost(channelId: string, parentTs: string): Promise<void> {
+  const existing = await loadActiveTrackedPosts();
+  const next = existing.filter((p) => !(p.channelId === channelId && p.parentTs === parentTs));
+  if (next.length !== existing.length) {
+    await redis.set('ch:activePosts', JSON.stringify(next));
+  }
+}
+
+async function getPostFollowers(postId: string): Promise<PostFollower[]> {
+  const raw = await redis.get(`ch:followers:${postId}`);
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw) as unknown;
+    return Array.isArray(arr) ? (arr as PostFollower[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function addPostFollower(postId: string, follower: PostFollower): Promise<PostFollower[]> {
+  const current = await getPostFollowers(postId);
+  const lower = follower.username.toLowerCase();
+  const next = current.filter((f) => f.username.toLowerCase() !== lower);
+  next.push(follower);
+  await redis.set(`ch:followers:${postId}`, JSON.stringify(next.slice(-50)));
+  return next;
+}
+
+async function removePostFollower(postId: string, username: string): Promise<PostFollower[]> {
+  const current = await getPostFollowers(postId);
+  const lower = username.toLowerCase();
+  const next = current.filter((f) => f.username.toLowerCase() !== lower);
+  await redis.set(`ch:followers:${postId}`, JSON.stringify(next));
+  return next;
+}
+
+async function getGlobalAlertUsers(): Promise<string[]> {
+  const raw = await redis.get('ch:globalAlertUsers');
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw) as unknown;
+    return Array.isArray(arr) ? arr.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function setGlobalAlertUser(username: string, enabled: boolean): Promise<string[]> {
+  const current = await getGlobalAlertUsers();
+  const lower = username.toLowerCase();
+  const next = current.filter((u) => u.toLowerCase() !== lower);
+  if (enabled && lower !== 'cerynaean-hind') {
+    next.push(username);
+  }
+  await redis.set('ch:globalAlertUsers', JSON.stringify(next.slice(-100)));
+  return next;
+}
+
+async function collectAlertTargets(postId: string): Promise<{
+  targetUsernames: string[];
+  dmEnabled: boolean;
+  mentionEnabled: boolean;
+  postFollowers: PostFollower[];
+}> {
+  const [rawAlertUsers, dmSetting, mentionSetting, globalUsers, postFollowers] = await Promise.all([
+    settings.get<string>('alertUsernames'),
+    settings.get<boolean>('dmPositionUpdates'),
+    settings.get<boolean>('mentionOnUpdates'),
+    getGlobalAlertUsers(),
+    getPostFollowers(postId),
+  ]);
+  const configured = parseAlertUsernames(rawAlertUsers);
+  const seen = new Set<string>();
+  const targetUsernames: string[] = [];
+  for (const u of [...configured, ...globalUsers, ...postFollowers.map((f) => f.username)]) {
+    const clean = u.trim().replace(/^\/?u\//i, '');
+    if (!clean) continue;
+    const lower = clean.toLowerCase();
+    if (lower === 'cerynaean-hind' || seen.has(lower)) continue;
+    seen.add(lower);
+    targetUsernames.push(clean);
+  }
+  return {
+    targetUsernames,
+    dmEnabled: dmSetting ?? true,
+    mentionEnabled: mentionSetting ?? true,
+    postFollowers,
+  };
+}
+
+async function sendPushAlertToOptedInUsers(
+  link: T1 | T3,
+  alert: { title: string; body: string }
+): Promise<void> {
+  try {
+    const userIds: T2[] = [];
+    for await (const uid of notifications.listOptedInUsersIterator()) {
+      userIds.push(uid as T2);
+      if (userIds.length >= 500) break;
+    }
+    if (!userIds.length) return;
+    await notifications.enqueue({
+      title: alert.title,
+      body: alert.body,
+      recipients: userIds.map((userId) => ({
+        userId,
+        link,
+        data: {},
+      })),
+    });
+  } catch (err) {
+    console.warn(`Push notification enqueue skipped for ${link}:`, err);
+  }
+}
+
+export async function enableLiveTradeAlertsForCurrentUser(): Promise<{
+  username: string | null;
+  pushOk: boolean;
+  message: string;
+}> {
+  const username = (await reddit.getCurrentUsername()) ?? null;
+  let pushOk = false;
+  try {
+    const res = await notifications.optInCurrentUser();
+    pushOk = Boolean(res?.success);
+  } catch (err) {
+    console.warn('optInCurrentUser failed:', err);
+  }
+  if (username) {
+    await setGlobalAlertUser(username, true);
+  }
+  if (!username && !pushOk) {
+    return { username: null, pushOk: false, message: 'Sign in to Reddit to enable live trade alerts.' };
+  }
+  return {
+    username,
+    pushOk,
+    message: username
+      ? `Live alerts enabled for u/${username}${pushOk ? ' (Push + DM + Mention)' : ' (DM + Mention)'}.`
+      : 'Push alerts enabled for your Reddit account.',
+  };
+}
+
+export async function disableLiveTradeAlertsForCurrentUser(): Promise<{
+  username: string | null;
+  pushOk: boolean;
+  message: string;
+}> {
+  const username = (await reddit.getCurrentUsername()) ?? null;
+  let pushOk = false;
+  try {
+    const res = await notifications.optOutCurrentUser();
+    pushOk = Boolean(res?.success);
+  } catch (err) {
+    console.warn('optOutCurrentUser failed:', err);
+  }
+  if (username) {
+    await setGlobalAlertUser(username, false);
+  }
+  return {
+    username,
+    pushOk,
+    message: username
+      ? `Live trade push & DM alerts disabled for u/${username}.`
+      : 'Live trade push alerts disabled.',
+  };
+}
+
 async function submitSignalPost(
   subredditName: string,
   sig: ParsedSlackSignal,
@@ -319,6 +540,25 @@ async function submitSignalPost(
   await redis.set(`ch:slackPost:${sig.channelId}:${sig.ts}`, post.id);
   await redis.set(`ch:optB:${post.id}`, '1');
   await redis.set(`ch:card:${post.id}`, JSON.stringify(sig.detail));
+  await trackActivePost({
+    channelId: sig.channelId,
+    channelName: sig.channelName,
+    parentTs: sig.ts,
+    postId: post.id,
+    symbol: sig.symbol,
+    direction: sig.direction,
+    title: sig.title,
+    createdEpoch: sig.publishedEpoch,
+  });
+  await sendPushAlertToOptedInUsers(
+    post.id as T3,
+    formatPushAlert({
+      title: sig.title,
+      kindTag: `${sig.direction} ENTRY`,
+      rLabel: `${sig.grade} ${sig.score}/100`,
+      body: sig.body,
+    })
+  );
   return post.id;
 }
 
@@ -328,20 +568,81 @@ async function applyLifecycleToSignalPost(
   ev: ParsedSlackLifecycle,
   flairMap: Record<string, string>
 ): Promise<void> {
-  await reddit.submitComment({
+  const cardDetail = await getSignalCardDetail(postId);
+  const postTitle = cardDetail?.card
+    ? `${cardDetail.card.dir} ${cardDetail.card.name} (${cardDetail.card.symbol})`
+    : ev.title;
+
+  const important = isImportantLifecycleEvent(ev.kindTag, ev.isFinal);
+  const { targetUsernames, dmEnabled, mentionEnabled, postFollowers } = important
+    ? await collectAlertTargets(postId)
+    : { targetUsernames: [], dmEnabled: false, mentionEnabled: false, postFollowers: [] };
+
+  const followerNames = new Set(postFollowers.map((f) => f.username.toLowerCase()));
+  const nonFollowerTargets = targetUsernames.filter((u) => !followerNames.has(u.toLowerCase()));
+  const shouldInlineMention = important && mentionEnabled && !dmEnabled && nonFollowerTargets.length > 0;
+  const commentBody = shouldInlineMention ? appendRedditMentions(ev.body, nonFollowerTargets) : ev.body;
+
+  const comment = await reddit.submitComment({
     id: postId as T3,
-    text: ev.body,
+    text: commentBody,
   });
 
-  if (ev.isFinal) {
-    const ch = getChannelDef(ev.channelName);
-    const suffix = ev.rLabel ? `${ev.kindTag} (${ev.rLabel})` : ev.kindTag;
-    await reddit.setPostFlair({
+  const ch = getChannelDef(ev.channelName);
+  await reddit
+    .setPostFlair({
       subredditName,
       postId: postId as T3,
       flairTemplateId: flairMap[ev.channelName] ?? flairMap.trading,
-      text: `${ch.flairText} · ${suffix}`.slice(0, 64),
-    });
+      text: buildLiveFlairText(ch.flairText, ev.kindTag, ev.rLabel),
+    })
+    .catch((err) => console.warn(`Could not update flair on ${postId}:`, err));
+
+  if (important) {
+    for (const follower of postFollowers) {
+      if (!follower.commentId || !follower.commentId.startsWith('t1_')) continue;
+      await reddit
+        .submitComment({
+          id: follower.commentId as T1,
+          text: `u/${follower.username} — **${ev.kindTag}${ev.rLabel ? ` (${ev.rLabel})` : ''}** update on **${postTitle}**:\n\n${ev.body}`,
+        })
+        .catch((err) => console.warn(`Could not reply to follower ${follower.username} (${follower.commentId}):`, err));
+    }
+
+    if (dmEnabled && nonFollowerTargets.length > 0) {
+      const dm = formatLifecycleDm({
+        subredditName,
+        postId,
+        commentId: comment?.id,
+        title: postTitle,
+        kindTag: ev.kindTag,
+        rLabel: ev.rLabel,
+        body: ev.body,
+      });
+      for (const username of nonFollowerTargets) {
+        await reddit
+          .sendPrivateMessage({
+            to: username,
+            subject: dm.subject,
+            text: dm.text,
+          })
+          .catch((err) => console.warn(`Could not send DM to u/${username} for ${postId}:`, err));
+      }
+    }
+
+    await sendPushAlertToOptedInUsers(
+      (comment?.id || postId) as T1 | T3,
+      formatPushAlert({
+        title: postTitle,
+        kindTag: ev.kindTag,
+        rLabel: ev.rLabel,
+        body: ev.body,
+      })
+    );
+  }
+
+  if (ev.isFinal) {
+    await untrackActivePost(ev.channelId, ev.parentTs);
   }
 }
 
@@ -575,7 +876,8 @@ async function getFlairMap(subredditName: string): Promise<Record<string, string
 async function collectRecentSlackItems(
   relay: SlackRelayClient,
   channelNames: string[],
-  limitPerChannel = 8
+  limitPerChannel = 15,
+  extraTrackedThreads: { channelId: string; channelName: string; parentTs: string }[] = []
 ): Promise<{
   signals: ParsedSlackSignal[];
   lifecycles: ParsedSlackLifecycle[];
@@ -589,6 +891,7 @@ async function collectRecentSlackItems(
 
   const targets = channelNames.filter((name) => Boolean(channelMap[name]));
   const seenLifecycleTs = new Set<string>();
+  const fetchedThreads = new Set<string>();
   await Promise.all(
     targets.map(async (chName) => {
       const chId = channelMap[chName];
@@ -611,9 +914,10 @@ async function collectRecentSlackItems(
             pulses.push(parsed);
           }
         }
-        for (const parentTs of threadParents.slice(0, 6)) {
+        for (const parentTs of threadParents.slice(0, 12)) {
+          fetchedThreads.add(`${chId}:${parentTs}`);
           try {
-            const replies = await relay.fetchThreadReplies(chId, parentTs, 15);
+            const replies = await relay.fetchThreadReplies(chId, parentTs, 25);
             for (const rep of replies) {
               const parsedRep = parseSlackMessage(chName, chId, { ...rep, thread_ts: parentTs });
               if (parsedRep?.kind === 'lifecycle') {
@@ -630,6 +934,28 @@ async function collectRecentSlackItems(
         }
       } catch (err) {
         console.error(`Failed reading Slack #${chName}:`, err);
+      }
+    })
+  );
+
+  const extraPending = extraTrackedThreads.filter((t) => !fetchedThreads.has(`${t.channelId}:${t.parentTs}`));
+  await Promise.all(
+    extraPending.slice(0, 30).map(async (t) => {
+      fetchedThreads.add(`${t.channelId}:${t.parentTs}`);
+      try {
+        const replies = await relay.fetchThreadReplies(t.channelId, t.parentTs, 25);
+        for (const rep of replies) {
+          const parsedRep = parseSlackMessage(t.channelName, t.channelId, { ...rep, thread_ts: t.parentTs });
+          if (parsedRep?.kind === 'lifecycle') {
+            const k = `${t.channelId}:${parsedRep.ts}`;
+            if (!seenLifecycleTs.has(k)) {
+              seenLifecycleTs.add(k);
+              lifecycles.push(parsedRep);
+            }
+          }
+        }
+      } catch (repErr) {
+        console.warn(`Failed reading tracked Slack thread ${t.parentTs} in #${t.channelName}:`, repErr);
       }
     })
   );
@@ -663,7 +989,8 @@ export async function syncSignalsAndLifecycle(subredditName: string): Promise<{
 
   const relay = await getSlackRelay();
   const flairMap = await getFlairMap(subredditName);
-  const { signals, lifecycles } = await collectRecentSlackItems(relay, enabledChannels, 8);
+  const activeTracked = await loadActiveTrackedPosts();
+  const { signals, lifecycles } = await collectRecentSlackItems(relay, enabledChannels, 15, activeTracked);
 
   // Cache latest parsed signals for fast Command Center & !calc / !scan lookups
   if (signals.length > 0) {
@@ -1064,7 +1391,21 @@ export function parseCommentCommand(rawBody: string): { cmd: string; args: strin
   const parts = firstLine.slice(1).trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return null;
   const cmd = parts[0].toLowerCase();
-  const supported = new Set(['scan', 'calc', 'status', 'open', 'stats', 'edges', 'help']);
+  const supported = new Set([
+    'scan',
+    'calc',
+    'status',
+    'open',
+    'stats',
+    'edges',
+    'help',
+    'follow',
+    'entered',
+    'track',
+    'notify',
+    'unfollow',
+    'exited',
+  ]);
   if (!supported.has(cmd)) return null;
   return { cmd, args: parts.slice(1) };
 }
@@ -1072,7 +1413,9 @@ export function parseCommentCommand(rawBody: string): { cmd: string; args: strin
 export async function handleCommentCommand(
   commentId: string,
   body: string,
-  authorName: string
+  authorName: string,
+  postId = '',
+  authorId = ''
 ): Promise<boolean> {
   const enabled = (await settings.get<boolean>('enableCommentCommands')) ?? true;
   if (!enabled) return false;
@@ -1083,7 +1426,27 @@ export async function handleCommentCommand(
 
   let reply = '';
   try {
-    if (parsed.cmd === 'help') {
+    if (parsed.cmd === 'follow' || parsed.cmd === 'entered' || parsed.cmd === 'track' || parsed.cmd === 'notify') {
+      if (!postId || !postId.startsWith('t3_')) {
+        reply = 'Reply directly on a signal post with `!follow` to subscribe to every position update.';
+      } else {
+        await addPostFollower(postId, {
+          username: authorName,
+          commentId,
+          userId: authorId || undefined,
+        });
+        reply =
+          `🔔 **Subscribed u/${authorName}!** You will receive one clean alert on every important move (Breakeven, Profit Lock, Trailing Stop, Stop Tightened, Partial Taken, Risk/Danger/Reversal Warning, and Close) — routine ticks are tracked silently.\n\n` +
+          `*Reply \`!unfollow\` anytime to stop alerts for this trade.*`;
+      }
+    } else if (parsed.cmd === 'unfollow' || parsed.cmd === 'exited') {
+      if (!postId || !postId.startsWith('t3_')) {
+        reply = 'Reply directly on the signal post with `!unfollow` to unsubscribe from that position.';
+      } else {
+        await removePostFollower(postId, authorName);
+        reply = `🔕 **Unsubscribed u/${authorName}** from live updates on this position.`;
+      }
+    } else if (parsed.cmd === 'help') {
       reply = formatHelpComment();
     } else if (parsed.cmd === 'calc') {
       if (parsed.args.length < 2) {

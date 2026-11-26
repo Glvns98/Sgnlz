@@ -77,9 +77,17 @@ notifications:
   max_signals_per_sweep: 10000
   send_market_pulses: false
   send_unentered_analysis_signals: false
-  min_stop_change_r_for_alert: 0.05
+  min_stop_change_r_for_alert: 0.25
+  min_tighten_change_r_for_alert: 0.10
   min_slack_priority: NOTICE
   min_reddit_priority: NOTICE
+  broadcast_management_updates: true
+  notify_thesis_warnings: true
+  thesis_warning_escalation_only: true
+  drawdown_warning_levels_r: [-0.50, -0.75]
+  thesis_warning_cooldown_bars: 2
+  slack_alert_mention: ${SLACK_ALERT_MENTION}
+  reddit_alert_mention: ${REDDIT_ALERT_MENTION}
 
 dashboard:
   enabled: true

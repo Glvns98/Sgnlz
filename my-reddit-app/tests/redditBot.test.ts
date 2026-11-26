@@ -12,11 +12,17 @@ import {
   slackToMarkdown,
 } from '../src/server/slackRelay.js';
 import {
+  appendRedditMentions,
+  buildLiveFlairText,
   formatChannelDirectoryBody,
   formatLifecycleComment,
+  formatLifecycleDm,
   formatPulsePost,
+  formatPushAlert,
   formatSignalPostBody,
   formatSignalPostTitle,
+  isImportantLifecycleEvent,
+  parseAlertUsernames,
 } from '../src/server/formatters.js';
 
 // Test pure helpers without importing Devvit runtime globals directly
@@ -31,7 +37,21 @@ function parseCommentCommand(rawBody: string): { cmd: string; args: string[] } |
   const parts = firstLine.slice(1).trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return null;
   const cmd = parts[0].toLowerCase();
-  return ['scan', 'calc', 'status', 'open', 'stats', 'edges', 'help'].includes(cmd)
+  return [
+    'scan',
+    'calc',
+    'status',
+    'open',
+    'stats',
+    'edges',
+    'help',
+    'follow',
+    'entered',
+    'track',
+    'notify',
+    'unfollow',
+    'exited',
+  ].includes(cmd)
     ? { cmd, args: parts.slice(1) }
     : null;
 }
@@ -154,9 +174,16 @@ describe('Cerynaean Hind Reddit App (r/GlvnsOrg)', () => {
     expect(cfg.post.entrypoints['signal-detail'].entry).toBe('signal-detail.html');
     expect(cfg.post.entrypoints['signal-calc'].entry).toBe('signal-calc.html');
     expect(cfg.scheduler.tasks['sync-signals'].endpoint).toBe('/internal/scheduler/sync-signals');
+    expect(cfg.scheduler.tasks['sync-signals'].cron).toBe('*/2 * * * *');
     expect(cfg.settings.global.slackBotToken.isSecret).toBe(true);
     expect(cfg.settings.global.slackBotToken.defaultValue).toBeUndefined();
     expect(cfg.settings.subreddit.redditMinGrade.defaultValue).toBe('B+');
+    expect(cfg.settings.subreddit.alertUsernames.defaultValue).toBe('');
+    expect(cfg.settings.subreddit.dmPositionUpdates.defaultValue).toBe(true);
+    expect(cfg.settings.subreddit.mentionOnUpdates.defaultValue).toBe(true);
+    const menuEndpoints = (cfg.menu?.items ?? []).map((m: { endpoint: string }) => m.endpoint);
+    expect(menuEndpoints).toContain('/internal/menu/enable-alerts');
+    expect(menuEndpoints).toContain('/internal/menu/disable-alerts');
   });
 
   it('formats Strategy v2 Signal Card post title & body within Reddit limits', () => {
@@ -284,6 +311,9 @@ describe('Cerynaean Hind Reddit App (r/GlvnsOrg)', () => {
     expect(parseCommentCommand('!scan CRASH500')).toEqual({ cmd: 'scan', args: ['CRASH500'] });
     expect(parseCommentCommand('!calc R_100 1000 1.5')).toEqual({ cmd: 'calc', args: ['R_100', '1000', '1.5'] });
     expect(parseCommentCommand('!stats')).toEqual({ cmd: 'stats', args: [] });
+    expect(parseCommentCommand('!follow')).toEqual({ cmd: 'follow', args: [] });
+    expect(parseCommentCommand('!entered')).toEqual({ cmd: 'entered', args: [] });
+    expect(parseCommentCommand('!unfollow')).toEqual({ cmd: 'unfollow', args: [] });
     expect(parseCommentCommand('Great trade!')).toBeNull();
     expect(parseCommentCommand('!unknown')).toBeNull();
 
@@ -615,5 +645,106 @@ describe('Cerynaean Hind Reddit App (r/GlvnsOrg)', () => {
 
     const noTok = new SlackRelayClient('');
     await expect(noTok.discoverChannels()).rejects.toThrow(SlackRelayError);
+  });
+
+  it('parses broadcasted management and early-warning thread replies as non-final lifecycle updates', () => {
+    const cases = [
+      {
+        header: '*🛡️ BREAKEVEN SECURED*  ·  🟢 LONG `R_100`\n`▰▰▱▱▱▱▱▱▱▱`  *+0.55R*',
+        tag: 'BREAKEVEN',
+      },
+      {
+        header: '*⚠️ RISK WARNING · DRAWDOWN*  ·  🟢 LONG `R_100`\n📉 Live PnL *-0.55R*  ·  📏 Buffer to Stop `0.45R`',
+        tag: 'RISK WARNING',
+      },
+      {
+        header: '*🚨 DANGER ZONE · NEAR STOP*  ·  🟢 LONG `R_100`\n📉 Live PnL *-0.80R*  ·  📏 Buffer to Stop `0.20R`',
+        tag: 'DANGER ZONE',
+      },
+      {
+        header: '*⚠️ REVERSAL WARNING · MOMENTUM SHIFT*  ·  🟢 LONG `R_100`\n📉 Live PnL *+0.10R*  ·  📏 Buffer to Stop `1.10R`',
+        tag: 'REVERSAL WARNING',
+      },
+      {
+        header: '*🚨 EXIT WARNING · STRONG REVERSAL*  ·  🟢 LONG `R_100`\n📉 Live PnL *-0.15R*  ·  📏 Buffer to Stop `0.85R`',
+        tag: 'EXIT WARNING',
+      },
+      {
+        header: '*⚠️ MOMENTUM WARNING · FADING*  ·  🟢 LONG `R_100`\n📉 Live PnL *+0.20R*  ·  📏 Buffer to Stop `1.20R`',
+        tag: 'MOMENTUM WARNING',
+      },
+    ];
+
+    for (let i = 0; i < cases.length; i++) {
+      const c = cases[i];
+      const parsed = parseSlackMessage('volatility-indices', 'C0CJWBD99QD', {
+        ts: `179557000${i}.000100`,
+        thread_ts: '1795565727.906759',
+        subtype: 'thread_broadcast',
+        blocks: [
+          { type: 'section', text: { type: 'mrkdwn', text: c.header } },
+          { type: 'section', text: { type: 'mrkdwn', text: '> 💡 Watch protective stop closely.' } },
+        ],
+      });
+      expect(parsed?.kind).toBe('lifecycle');
+      if (parsed?.kind === 'lifecycle') {
+        expect(parsed.isFinal).toBe(false);
+        expect(parsed.parentTs).toBe('1795565727.906759');
+        expect(parsed.kindTag).toBe(c.tag);
+      }
+    }
+  });
+
+  it('formats Reddit mentions (max 3), live post flairs, DM alerts, and push alerts cleanly', () => {
+    expect(parseAlertUsernames('u/Gelvinus, /u/trader_one, gelvinus; cerynaean-hind, bad!name, TraderTwo')).toEqual([
+      'Gelvinus',
+      'trader_one',
+      'TraderTwo',
+    ]);
+
+    expect(buildLiveFlairText('📈 #volatility-indices', 'RISK WARNING', '-0.55R')).toBe(
+      '📈 #volatility-indices · RISK WARNING (-0.55R)'
+    );
+    expect(buildLiveFlairText('📈 #volatility-indices', 'TRAILING STOP MOVED', '+1.50R').length).toBeLessThanOrEqual(64);
+
+    const mentioned = appendRedditMentions('### ⚠️ RISK WARNING', ['u/Gelvinus', 'gelvinus', 'u2', 'u3', 'u4']);
+    expect(mentioned).toContain('u/Gelvinus · u/u2 · u/u3');
+    expect(mentioned).not.toContain('u/u4');
+    expect(appendRedditMentions('### ⚠️ RISK WARNING', [])).toBe('### ⚠️ RISK WARNING');
+
+    const dm = formatLifecycleDm({
+      subredditName: 'GlvnsOrg',
+      postId: 't3_abc123',
+      commentId: 't1_xyz789',
+      title: 'LONG Volatility 100 Index (R_100)',
+      kindTag: 'RISK WARNING',
+      rLabel: '-0.55R',
+      body: '### ⚠️ RISK WARNING\nWatch stop closely.',
+    });
+    expect(dm.subject.length).toBeLessThanOrEqual(100);
+    expect(dm.subject).toContain('[r/GlvnsOrg] RISK WARNING (-0.55R)');
+    expect(dm.text).toContain('https://www.reddit.com/r/GlvnsOrg/comments/abc123/_/xyz789/');
+    expect(dm.text).toContain('!unfollow');
+
+    const push = formatPushAlert({
+      title: 'LONG Volatility 100 Index (R_100)',
+      kindTag: 'DANGER ZONE',
+      rLabel: '-0.80R',
+      body: '### 🚨 DANGER ZONE\n> 💡 **Watch stop**\n`1,622.00`',
+    });
+    expect(push.title.length).toBeLessThanOrEqual(100);
+    expect(push.body.length).toBeLessThanOrEqual(200);
+    expect(push.body).not.toContain('###');
+    expect(push.body).not.toContain('`');
+
+    expect(isImportantLifecycleEvent('BREAKEVEN SECURED', false)).toBe(true);
+    expect(isImportantLifecycleEvent('RISK WARNING', false)).toBe(true);
+    expect(isImportantLifecycleEvent('DANGER ZONE', false)).toBe(true);
+    expect(isImportantLifecycleEvent('REVERSAL WARNING', false)).toBe(true);
+    expect(isImportantLifecycleEvent('EXIT WARNING', false)).toBe(true);
+    expect(isImportantLifecycleEvent('UPDATE', true)).toBe(true);
+    expect(isImportantLifecycleEvent('UPDATE', false)).toBe(false);
+    expect(isImportantLifecycleEvent('HOLD', false)).toBe(false);
+    expect(isImportantLifecycleEvent('MOMENTUM WARNING', false)).toBe(false);
   });
 });

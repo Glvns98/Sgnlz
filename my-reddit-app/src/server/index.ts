@@ -4,6 +4,8 @@ import { PLAYBOOK_TOPICS } from '../shared/playbook.js';
 import type { SignalDto } from '../shared/types.js';
 import {
   calcPositionFromParams,
+  disableLiveTradeAlertsForCurrentUser,
+  enableLiveTradeAlertsForCurrentUser,
   ensureSubredditChannels,
   getLiveChannelFromSlack,
   getLiveOverviewFromSlack,
@@ -196,10 +198,12 @@ app.post('/internal/triggers/app-upgrade', async (_req, res) => {
 
 app.post('/internal/triggers/comment-create', async (req, res) => {
   try {
-    const comment = req.body?.comment as { id?: string; body?: string } | undefined;
-    const author = req.body?.author as { name?: string } | undefined;
+    const comment = req.body?.comment as { id?: string; body?: string; postId?: string } | undefined;
+    const author = req.body?.author as { id?: string; name?: string } | undefined;
+    const post = req.body?.post as { id?: string } | undefined;
+    const postId = comment?.postId || post?.id || '';
     if (comment?.id && comment?.body) {
-      await handleCommentCommand(comment.id, comment.body, author?.name ?? '');
+      await handleCommentCommand(comment.id, comment.body, author?.name ?? '', postId, author?.id ?? '');
     }
   } catch (err) {
     console.error('onCommentCreate error:', err);
@@ -327,6 +331,34 @@ app.post('/internal/forms/quick-scan', async (req, res) => {
     });
   } catch (err) {
     res.json({ showToast: `Scan failed: ${err instanceof Error ? err.message : String(err)}` });
+  }
+});
+
+app.post('/internal/menu/enable-alerts', async (_req, res) => {
+  try {
+    const out = await enableLiveTradeAlertsForCurrentUser();
+    res.json({
+      showToast: {
+        text: out.message,
+        appearance: out.username || out.pushOk ? 'success' : 'neutral',
+      },
+    });
+  } catch (err) {
+    res.json({ showToast: `Could not enable alerts: ${err instanceof Error ? err.message : String(err)}` });
+  }
+});
+
+app.post('/internal/menu/disable-alerts', async (_req, res) => {
+  try {
+    const out = await disableLiveTradeAlertsForCurrentUser();
+    res.json({
+      showToast: {
+        text: out.message,
+        appearance: 'success',
+      },
+    });
+  } catch (err) {
+    res.json({ showToast: `Could not disable alerts: ${err instanceof Error ? err.message : String(err)}` });
   }
 });
 

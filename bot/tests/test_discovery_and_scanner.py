@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -20,6 +20,7 @@ from bot.core.enums import (
     ExitReason,
     MarketRegime,
     MomentumState,
+    MomentumTransition,
     RiskLevel,
     SignalType,
     SqueezeState,
@@ -293,6 +294,10 @@ async def test_intrabar_position_monitor_locks_profit_and_closes_cleanly(tmp_pat
             initial_risk_distance=2.0,
             opened_at=now,
             last_updated_at=now,
+            metadata={
+                "slack_channel": "C0CJWBD99QD",
+                "slack_thread_ts": "1795543168.175089",
+            },
         )
         orch.open_positions.append(pos)
 
@@ -302,6 +307,9 @@ async def test_intrabar_position_monitor_locks_profit_and_closes_cleanly(tmp_pat
         assert pos in orch.open_positions
         assert pos.stage == TradeStage.PROFIT_PROTECTION
         assert pos.current_stop == pytest.approx(100.9)
+        assert len(orch.notifier.slack.sent_messages) == 1
+        assert orch.notifier.slack.sent_messages[0]["reply_broadcast"] is True
+        assert orch.notifier.slack.sent_messages[0]["thread_ts"] == "1795543168.175089"
 
         # Pullback touches locked stop intra-bar -> closes cleanly as PROFIT_LOCK_STOP
         hit_bar = Candle("R_100", 900, int(now.timestamp()), 102.2, 102.2, 100.8, 100.9, is_closed=False)
@@ -310,5 +318,199 @@ async def test_intrabar_position_monitor_locks_profit_and_closes_cleanly(tmp_pat
         closed = orch.storage.load_closed_trades(limit=5)
         assert len(closed) == 1
         assert closed[0].exit_reason == ExitReason.PROFIT_LOCK_STOP
+    finally:
+        orch.storage.close()
+
+
+@pytest.mark.asyncio
+async def test_position_updates_broadcast_and_early_warnings_fire_before_stop_loss(tmp_path) -> None:
+    profile = SymbolProfile(
+        symbol="R_100",
+        primary_timeframe=900,
+        higher_timeframe=None,
+        slack_channel="C0CJWBD99QD",
+        spread_bps=0.0,
+        slippage_bps=0.0,
+    )
+    settings = EngineSettings(
+        symbols={"R_100": profile},
+        storage=StorageSettings(sqlite_path=str(tmp_path / "bot.db")),
+        logging=LoggingSettings(json_log_path=str(tmp_path / "audit.jsonl")),
+        notifications=NotificationSettings(
+            slack_enabled=False,
+            reddit_enabled=False,
+            reddit_outbox_dir=str(tmp_path / "reddit"),
+        ),
+    )
+    orch = EngineOrchestrator(settings, show_dashboard=False)
+    try:
+        now = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+        orch.market_states["R_100"] = make_market_state(symbol="R_100", close=100.0)
+        pos = Position(
+            trade_id="TRD-WARN-FLOW",
+            idempotency_key="idem-warn-flow",
+            symbol="R_100",
+            direction=TradeDirection.BUY,
+            stage=TradeStage.INITIAL_PROTECTION,
+            entry_price=100.0,
+            current_price=100.0,
+            initial_stop=98.0,
+            current_stop=98.0,
+            take_profit=None,
+            stake=100.0,
+            remaining_fraction=1.0,
+            multiplier=20.0,
+            initial_risk_amount=100.0,
+            initial_risk_distance=2.0,
+            opened_at=now,
+            last_updated_at=now,
+            metadata={
+                "slack_channel": "C0CJWBD99QD",
+                "slack_thread_ts": "1795500000.000100",
+            },
+        )
+        orch.open_positions.append(pos)
+
+        # 1. Intra-bar drawdown crosses -0.50R -> broadcasts RISK WARNING, repeat tick does not duplicate
+        warn_bar = Candle("R_100", 900, int(now.timestamp()), 100.0, 100.0, 98.9, 98.95, is_closed=False)
+        await orch._monitor_open_position_intrabar(pos, warn_bar, profile)
+        assert len(orch.notifier.slack.sent_messages) == 1
+        msg1 = orch.notifier.slack.sent_messages[-1]
+        assert "RISK WARNING" in msg1["text"]
+        assert msg1["reply_broadcast"] is True
+        assert msg1["thread_ts"] == "1795500000.000100"
+
+        dup_warn_bar = Candle("R_100", 900, int(now.timestamp()) + 30, 98.95, 99.0, 98.85, 98.90, is_closed=False)
+        await orch._monitor_open_position_intrabar(pos, dup_warn_bar, profile)
+        assert len(orch.notifier.slack.sent_messages) == 1
+
+        # 2. Further drop to -0.80R -> broadcasts DANGER ZONE at CRITICAL priority
+        danger_bar = Candle("R_100", 900, int(now.timestamp()) + 60, 98.90, 98.95, 98.35, 98.40, is_closed=False)
+        await orch._monitor_open_position_intrabar(pos, danger_bar, profile)
+        assert len(orch.notifier.slack.sent_messages) == 2
+        msg2 = orch.notifier.slack.sent_messages[-1]
+        assert "DANGER ZONE" in msg2["text"]
+        assert msg2["reply_broadcast"] is True
+        assert msg2["meta"]["priority"] == "CRITICAL"
+
+        # 3. First defensive TIGHTEN_STOP notifies, while subsequent tiny nudge (< 0.10R) is tracked silently
+        pos.current_stop = 98.15  # candidate at 99.40 (-0.30R) is 99.40 - 0.60*2.0 = 98.20 (delta = 0.025R)
+        pos.metadata["warned_drawdown_levels"] = [-0.5, -0.75]
+        stub_states = [
+            # Bar 1: first tighten -> notifies
+            make_market_state(
+                symbol="R_100",
+                close=99.40,
+                val=-0.20,
+                prev_val=0.10,
+                momentum_state=MomentumState.WEAK_BEARISH,
+                transitions=(MomentumTransition.BULLISH_DECELERATION,),
+            ),
+            # Bar 2: second tiny tighten (98.20 -> 98.25, delta = 0.025R < 0.10R) -> silent
+            make_market_state(
+                symbol="R_100",
+                close=99.45,
+                val=-0.18,
+                prev_val=-0.20,
+                momentum_state=MomentumState.WEAK_BEARISH,
+                transitions=(MomentumTransition.BULLISH_DECELERATION,),
+            ),
+            # Bar 3: MOMENTUM_DECAY alone -> tracked silently (no alert)
+            make_market_state(
+                symbol="R_100",
+                close=100.20,
+                val=0.30,
+                prev_val=0.50,
+                momentum_state=MomentumState.WEAK_BULLISH,
+                transitions=(MomentumTransition.BULLISH_DECELERATION,),
+            ),
+            # Bar 4: REVERSAL_WARNING fires once
+            make_market_state(
+                symbol="R_100",
+                close=100.0,
+                val=-0.10,
+                prev_val=0.10,
+                momentum_state=MomentumState.WEAK_BEARISH,
+                transitions=(MomentumTransition.ZERO_CROSS_DOWN,),
+            ),
+            # Bar 5: Same severity REVERSAL_WARNING -> escalation-only suppresses repeat
+            make_market_state(
+                symbol="R_100",
+                close=100.0,
+                val=0.05,
+                prev_val=0.25,
+                momentum_state=MomentumState.WEAK_BULLISH,
+                transitions=(MomentumTransition.MOMENTUM_EXHAUSTION,),
+            ),
+            # Bar 6: Escalation to EXIT_WARNING -> fires at CRITICAL priority
+            make_market_state(
+                symbol="R_100",
+                close=100.80,
+                val=0.20,
+                prev_val=0.05,
+                momentum_state=MomentumState.WEAK_BULLISH,
+                regime=MarketRegime.ABNORMAL_VOLATILITY,
+                transitions=(MomentumTransition.STEADY,),
+            ),
+        ]
+
+        class _StubAnalyzer:
+            def __init__(self, items):
+                self._items = list(items)
+                self._idx = 0
+
+            def update(self, candle):
+                item = self._items[self._idx]
+                self._idx += 1
+                return item
+
+        orch.analyzers["R_100"] = _StubAnalyzer(stub_states)
+
+        # Bar 1: first TIGHTEN_STOP
+        c1 = Candle("R_100", 900, int((now + timedelta(minutes=15)).timestamp()), 99.0, 99.6, 98.8, 99.40, is_closed=True)
+        await orch.on_closed_candle(c1)
+        assert pos.current_stop == pytest.approx(98.20)
+        assert pos.metadata.get("tighten_alerted") is True
+        assert len(orch.notifier.slack.sent_messages) == 3
+        msg3 = orch.notifier.slack.sent_messages[-1]
+        assert "STOP TIGHTENED" in msg3["text"]
+        assert msg3["reply_broadcast"] is True
+
+        # Bar 2: tiny TIGHTEN_STOP (< 0.10R) -> tracked silently
+        c2 = Candle("R_100", 900, int((now + timedelta(minutes=30)).timestamp()), 99.40, 99.6, 99.0, 99.45, is_closed=True)
+        await orch.on_closed_candle(c2)
+        assert pos.current_stop == pytest.approx(98.25)
+        assert len(orch.notifier.slack.sent_messages) == 3
+
+        # Bar 3: MOMENTUM_DECAY alone -> tracked silently
+        pos.decay_bars = 1
+        c3 = Candle("R_100", 900, int((now + timedelta(minutes=45)).timestamp()), 99.45, 100.3, 99.4, 100.20, is_closed=True)
+        await orch.on_closed_candle(c3)
+        assert pos.stage == TradeStage.MOMENTUM_DECAY
+        assert len(orch.notifier.slack.sent_messages) == 3
+
+        # Bar 4: REVERSAL_WARNING fires once
+        pos.decay_bars = 0
+        c4 = Candle("R_100", 900, int((now + timedelta(minutes=60)).timestamp()), 100.0, 100.2, 99.3, 100.0, is_closed=True)
+        await orch.on_closed_candle(c4)
+        assert len(orch.notifier.slack.sent_messages) == 4
+        msg4 = orch.notifier.slack.sent_messages[-1]
+        assert "REVERSAL WARNING" in msg4["text"]
+        assert msg4["reply_broadcast"] is True
+
+        # Bar 5: Repeat REVERSAL_WARNING suppressed by escalation-only mode
+        c5 = Candle("R_100", 900, int((now + timedelta(minutes=75)).timestamp()), 100.0, 100.2, 99.8, 100.0, is_closed=True)
+        await orch.on_closed_candle(c5)
+        assert len(orch.notifier.slack.sent_messages) == 4
+
+        # Bar 6: Escalates to EXIT_WARNING -> notifies at CRITICAL priority
+        pos.current_stop = 99.95  # already tighter than 100.80 - 0.90 = 99.90 so HOLD lets EXIT_WARNING fire
+        c6 = Candle("R_100", 900, int((now + timedelta(minutes=90)).timestamp()), 100.0, 100.9, 99.96, 100.80, is_closed=True)
+        await orch.on_closed_candle(c6)
+        assert len(orch.notifier.slack.sent_messages) == 5
+        msg5 = orch.notifier.slack.sent_messages[-1]
+        assert "EXIT WARNING" in msg5["text"]
+        assert msg5["reply_broadcast"] is True
+        assert msg5["meta"]["priority"] == "CRITICAL"
     finally:
         orch.storage.close()

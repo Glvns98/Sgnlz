@@ -135,9 +135,17 @@ class NotificationSettings(BaseModel):
     max_signals_per_sweep: int = Field(default=10000, ge=1)
     send_market_pulses: bool = False
     send_unentered_analysis_signals: bool = False
-    min_stop_change_r_for_alert: float = Field(default=0.05, ge=0.0)
+    min_stop_change_r_for_alert: float = Field(default=0.25, ge=0.0)
+    min_tighten_change_r_for_alert: float = Field(default=0.10, ge=0.0)
     min_slack_priority: AlertPriority = AlertPriority.NOTICE
     min_reddit_priority: AlertPriority = AlertPriority.NOTICE
+    broadcast_management_updates: bool = True
+    notify_thesis_warnings: bool = True
+    thesis_warning_escalation_only: bool = True
+    drawdown_warning_levels_r: list[float] = Field(default_factory=lambda: [-0.50, -0.75])
+    thesis_warning_cooldown_bars: int = Field(default=2, ge=1)
+    slack_alert_mention: str | None = None
+    reddit_alert_mention: str | None = None
 
 
 class DashboardSettings(BaseModel):

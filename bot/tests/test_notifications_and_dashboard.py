@@ -31,6 +31,7 @@ from bot.core.models import (
 from bot.dashboard.terminal import DashboardState, TerminalDashboard
 from bot.notifications.formatter import (
     build_management_comment_bundle,
+    build_position_warning_comment_bundle,
     build_trade_closed_comment_bundle,
     build_trade_opened_bundle,
 )
@@ -371,4 +372,109 @@ def test_noise_suppression_settings_defaults() -> None:
     cfg = NotificationSettings()
     assert cfg.send_market_pulses is False
     assert cfg.send_unentered_analysis_signals is False
-    assert cfg.min_stop_change_r_for_alert == 0.05
+    assert cfg.min_stop_change_r_for_alert == 0.25
+    assert cfg.min_tighten_change_r_for_alert == 0.10
+    assert cfg.broadcast_management_updates is True
+    assert cfg.notify_thesis_warnings is True
+    assert cfg.thesis_warning_escalation_only is True
+    assert cfg.drawdown_warning_levels_r == [-0.50, -0.75]
+
+
+@pytest.mark.asyncio
+async def test_warning_comment_bundle_and_alert_mention(tmp_path) -> None:
+    now = datetime(2026, 1, 1, 13, 15, tzinfo=UTC)
+    profile = SymbolProfile(symbol="R_100", description="Volatility 100 Index", slack_channel="C0CJWBD99QD")
+    ms = make_market_state(close=98.9, val=-0.6, prev_val=-0.2, momentum_state=MomentumState.WEAK_BEARISH)
+    pos = Position(
+        trade_id="TRD-WARN-1",
+        idempotency_key="idem-warn-1",
+        symbol="R_100",
+        direction=TradeDirection.BUY,
+        stage=TradeStage.INITIAL_PROTECTION,
+        entry_price=100.0,
+        current_price=98.9,
+        initial_stop=98.0,
+        current_stop=98.0,
+        take_profit=None,
+        stake=100.0,
+        remaining_fraction=1.0,
+        multiplier=20.0,
+        initial_risk_amount=100.0,
+        initial_risk_distance=2.0,
+        opened_at=now,
+        last_updated_at=now,
+        bars_held=3,
+        mfe_r=0.20,
+        mae_r=-0.55,
+    )
+    bundle = build_position_warning_comment_bundle(
+        pos,
+        ms,
+        profile,
+        warning_kind="DRAWDOWN_WARNING",
+        headline="⚠️ RISK WARNING · DRAWDOWN",
+        note="Position moved against entry. Watch protective stop and momentum closely.",
+    )
+    assert bundle.slack_blocks[0]["type"] == "section"
+    assert "⚠️ RISK WARNING · DRAWDOWN" in bundle.slack_blocks[0]["text"]["text"]
+    assert "⚠️ RISK WARNING · DRAWDOWN" in bundle.reddit_markdown
+    combined_text = (
+        bundle.slack_text
+        + "\n"
+        + bundle.reddit_markdown
+        + "\n"
+        + str(bundle.slack_blocks)
+    ).lower()
+    for forbidden in ("stop loss", "closed", "stop hit"):
+        assert forbidden not in combined_text
+
+    router = NotificationRouter(
+        NotificationSettings(
+            slack_enabled=False,
+            reddit_enabled=False,
+            reddit_outbox_dir=str(tmp_path / "reddit"),
+            slack_alert_mention="<!here>",
+            reddit_alert_mention="u/Gelvinus",
+        )
+    )
+    await router.notify_trade_comment(
+        dedupe_key="warn:TRD-WARN-1:dd:-0.50",
+        trade_id=pos.trade_id,
+        priority=AlertPriority.WARNING,
+        channel=profile.slack_channel,
+        thread_ts="1795543168.175089",
+        slack_text=bundle.slack_text,
+        slack_blocks=bundle.slack_blocks,
+        reddit_post_id=None,
+        reddit_comment_body=bundle.reddit_markdown,
+        label="risk_warning",
+        reply_broadcast=True,
+    )
+    sent_warn = router.slack.sent_messages[-1]
+    assert sent_warn["text"].startswith("<!here> ")
+    assert sent_warn["reply_broadcast"] is True
+    assert sent_warn["blocks"][0]["type"] == "section"
+    assert sent_warn["blocks"][-1]["type"] == "context"
+    assert "<!here>" in sent_warn["blocks"][-1]["elements"][0]["text"]
+
+    await router.notify_trade_comment(
+        dedupe_key="mgmt:TRD-WARN-1:be",
+        trade_id=pos.trade_id,
+        priority=AlertPriority.NOTICE,
+        channel=profile.slack_channel,
+        thread_ts="1795543168.175089",
+        slack_text="🛡️ BREAKEVEN SECURED · R_100",
+        slack_blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": "*🛡️ BREAKEVEN SECURED*"}}],
+        reddit_post_id=None,
+        reddit_comment_body="Breakeven secured",
+        label="move_to_breakeven",
+        reply_broadcast=True,
+    )
+    sent_notice = router.slack.sent_messages[-1]
+    assert "<!here>" not in sent_notice["text"]
+    assert len(sent_notice["blocks"]) == 1
+
+    warn_comment = (tmp_path / "reddit" / "TRD-WARN-1" / "01_comment_risk_warning.md").read_text(encoding="utf-8")
+    notice_comment = (tmp_path / "reddit" / "TRD-WARN-1" / "02_comment_move_to_breakeven.md").read_text(encoding="utf-8")
+    assert "🔔 *Alert:* u/Gelvinus" in warn_comment
+    assert "🔔 *Alert:* u/Gelvinus" in notice_comment

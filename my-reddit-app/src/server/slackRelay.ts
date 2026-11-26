@@ -592,7 +592,7 @@ export function formatOptionBSignalBody(card: SignalCardPostData, detail: Signal
 
   lines.push(
     '---',
-    `💬 *Follow this post: I monitor this scalp continuously until close and comment only on key moves (🛡️ BE · 🔒 Lock · 📐 Trail · ✂️ Trim · 🏁 Exit).* Comment \`!calc ${card.sym} 1000 1\` for sizing. ⚠️ *Not financial advice.*`
+    `💬 *Follow this post: I monitor this scalp continuously until close and broadcast updates on key moves (🛡️ BE · 🔒 Lock · 📐 Trail · ⚡ Tighten · ⚠️ Risk · ✂️ Trim · 🏁 Exit).* Comment \`!follow\` to receive every update on this position or \`!calc ${card.sym} 1000 1\` for sizing. ⚠️ *Not financial advice.*`
   );
 
   return lines.join('\n').slice(0, 39000);
@@ -856,7 +856,7 @@ export function parseSlackMessage(
 
   // 2. Trade Lifecycle Update (reply or broadcast on a signal thread)
   const isLifecycleHeader =
-    /BREAKEVEN SECURED|PROFIT LOCKED|TRAILING STOP MOVED|STOP TIGHTENED|PARTIAL TAKEN|WIN ·|SCRATCH ·|LOSS CAPPED|PARAMETER|TP1 HIT|TP2 HIT|TP3 HIT|STOP LOSS|BREAKEVEN|TRAILING STOP|EARLY EXIT|MANUAL CLOSE|TIME EXPIRY/i.test(
+    /BREAKEVEN SECURED|PROFIT LOCKED|TRAILING STOP MOVED|STOP TIGHTENED|PARTIAL TAKEN|RISK WARNING|DANGER ZONE|EXIT WARNING|REVERSAL WARNING|MOMENTUM WARNING|WIN ·|SCRATCH ·|LOSS CAPPED|PARAMETER|TP1 HIT|TP2 HIT|TP3 HIT|STOP LOSS|BREAKEVEN|TRAILING STOP|EARLY EXIT|MANUAL CLOSE|TIME EXPIRY/i.test(
       effHeader
     );
   if (isLifecycleHeader || (msg.thread_ts && msg.thread_ts !== msg.ts)) {
@@ -869,7 +869,7 @@ export function parseSlackMessage(
     const rMatch = (msg.text || body).match(/([+-]\d+\.\d+R)/);
     const rLabel = rMatch ? rMatch[1] : '';
     const kindMatch = effHeader.match(
-      /(PROFIT LOCKED|TRAILING STOP|BREAKEVEN|STOP TIGHTENED|PARTIAL|WIN|SCRATCH|LOSS CAPPED|TP3|TP2|TP1|STOP LOSS|EARLY EXIT|TIME EXPIRY|MANUAL CLOSE|PARAMETER)/i
+      /(PROFIT LOCKED|TRAILING STOP|BREAKEVEN|STOP TIGHTENED|PARTIAL|RISK WARNING|DANGER ZONE|EXIT WARNING|REVERSAL WARNING|MOMENTUM WARNING|WIN|SCRATCH|LOSS CAPPED|TP3|TP2|TP1|STOP LOSS|EARLY EXIT|TIME EXPIRY|MANUAL CLOSE|PARAMETER)/i
     );
     const kindTag = kindMatch ? kindMatch[1].toUpperCase() : 'UPDATE';
     return {

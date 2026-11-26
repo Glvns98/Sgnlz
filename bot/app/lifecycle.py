@@ -40,6 +40,7 @@ from bot.indicators.squeeze import SqueezeConfig
 from bot.management.trade_manager import TradeManager
 from bot.notifications.formatter import (
     build_management_comment_bundle,
+    build_position_warning_comment_bundle,
     build_trade_closed_comment_bundle,
     build_trade_opened_bundle,
 )
@@ -317,6 +318,8 @@ class EngineOrchestrator:
         self.storage.record_market_state(state)
 
         # Manage open positions on this symbol first
+        notified_positions: set[str] = set()
+        decayed_positions: set[str] = set()
         for pos in list(self.open_positions):
             if pos.symbol != candle.symbol:
                 continue
@@ -351,7 +354,10 @@ class EngineOrchestrator:
 
             if event is not None and decision.action not in (ManagementAction.EXIT, ManagementAction.EMERGENCY_EXIT):
                 self.storage.record_management_event(event)
-                await self._maybe_notify_management_event(pos, prev_stop, decision, event, state, profile)
+                if event.stage_after == TradeStage.MOMENTUM_DECAY and event.stage_before != TradeStage.MOMENTUM_DECAY:
+                    decayed_positions.add(pos.trade_id)
+                if await self._maybe_notify_management_event(pos, prev_stop, decision, event, state, profile):
+                    notified_positions.add(pos.trade_id)
             elif event is not None:
                 self.storage.record_management_event(event)
 
@@ -363,12 +369,26 @@ class EngineOrchestrator:
                     state,
                     profile,
                 )
+                continue
+
+            if await self._maybe_notify_drawdown_warning(pos, state, profile):
+                notified_positions.add(pos.trade_id)
 
         # Evaluate new entry signal
         active = next((p for p in self.open_positions if p.symbol == candle.symbol), None)
         signal = self.signal_engine.evaluate(state, profile, active_position=active)
         if signal.signal_type != SignalType.NO_ACTION:
             self.storage.record_signal(signal, executed=False)
+
+        if active is not None:
+            await self._maybe_notify_thesis_warning(
+                active,
+                signal,
+                state,
+                profile,
+                already_notified=active.trade_id in notified_positions,
+                entered_momentum_decay=active.trade_id in decayed_positions,
+            )
 
         if active is None and signal.signal_type in (SignalType.NEW_OPPORTUNITY, SignalType.CONTINUATION):
             risk_state = self._current_risk_state()
@@ -448,7 +468,7 @@ class EngineOrchestrator:
         event: ManagementEvent,
         state: MarketStateSnapshot,
         profile: SymbolProfile,
-    ) -> None:
+    ) -> bool:
         important_actions = {
             ManagementAction.MOVE_TO_BREAKEVEN,
             ManagementAction.LOCK_PROFIT,
@@ -457,12 +477,21 @@ class EngineOrchestrator:
             ManagementAction.REDUCE,
         }
         stop_delta_r = abs(pos.current_stop - prev_stop) / max(pos.initial_risk_distance, 1e-9)
-        should_notify = decision.action in important_actions and (
-            decision.action not in (ManagementAction.TRAIL, ManagementAction.TIGHTEN_STOP)
-            or stop_delta_r >= self.settings.notifications.min_stop_change_r_for_alert
-        )
-        if not should_notify:
-            return
+        if decision.action not in important_actions:
+            return False
+        if (
+            decision.action == ManagementAction.TRAIL
+            and stop_delta_r < self.settings.notifications.min_stop_change_r_for_alert
+        ):
+            return False
+        if decision.action == ManagementAction.TIGHTEN_STOP:
+            if (
+                pos.metadata.get("tighten_alerted")
+                and stop_delta_r < self.settings.notifications.min_tighten_change_r_for_alert
+            ):
+                return False
+            pos.metadata["tighten_alerted"] = True
+            self.storage.upsert_position(pos)
         comment_bundle = build_management_comment_bundle(
             pos,
             event,
@@ -471,10 +500,15 @@ class EngineOrchestrator:
             prev_stop,
             management_cfg=self.settings.management,
         )
+        priority = (
+            AlertPriority.WARNING
+            if decision.action in (ManagementAction.REDUCE, ManagementAction.TIGHTEN_STOP)
+            else AlertPriority.NOTICE
+        )
         await self.notifier.notify_trade_comment(
             dedupe_key=f"mgmt:{pos.trade_id}:{decision.action.value}:{round(pos.current_stop, 6)}",
             trade_id=pos.trade_id,
-            priority=AlertPriority.WARNING if decision.action == ManagementAction.REDUCE else AlertPriority.NOTICE,
+            priority=priority,
             channel=pos.metadata.get("slack_channel") or profile.slack_channel,
             thread_ts=pos.metadata.get("slack_thread_ts"),
             slack_text=comment_bundle.slack_text,
@@ -482,7 +516,141 @@ class EngineOrchestrator:
             reddit_post_id=pos.metadata.get("reddit_post_id"),
             reddit_comment_body=comment_bundle.reddit_markdown,
             label=decision.action.value.lower(),
+            reply_broadcast=self.settings.notifications.broadcast_management_updates,
         )
+        return True
+
+    async def _maybe_notify_drawdown_warning(
+        self,
+        pos: Position,
+        state: MarketStateSnapshot,
+        profile: SymbolProfile,
+    ) -> bool:
+        levels = self.settings.notifications.drawdown_warning_levels_r
+        if not levels:
+            return False
+        cur_r = pos.unrealized_r()
+        if cur_r >= 0.0 or pos.r_for_price(pos.current_stop) >= 0.0:
+            return False
+
+        thresholds = sorted({round(float(lvl), 2) for lvl in levels if float(lvl) < 0.0}, reverse=True)
+        warned = {round(float(x), 2) for x in pos.metadata.get("warned_drawdown_levels", [])}
+        crossed = [lvl for lvl in thresholds if cur_r <= lvl and lvl not in warned]
+        if not crossed:
+            return False
+
+        deepest = min(crossed)
+        warned.update(crossed)
+        pos.metadata["warned_drawdown_levels"] = sorted(warned, reverse=True)
+        self.storage.upsert_position(pos)
+
+        if deepest <= -0.75:
+            warning_kind = "DANGER_ZONE"
+            headline = "🚨 DANGER ZONE · NEAR STOP"
+            priority = AlertPriority.CRITICAL
+            note = "Price is dangerously close to protective stop. Review risk immediately."
+            label = "danger_zone"
+        else:
+            warning_kind = "DRAWDOWN_WARNING"
+            headline = "⚠️ RISK WARNING · DRAWDOWN"
+            priority = AlertPriority.WARNING
+            note = "Position moved against entry. Watch protective stop and momentum closely."
+            label = "risk_warning"
+
+        comment_bundle = build_position_warning_comment_bundle(
+            pos,
+            state,
+            profile,
+            warning_kind=warning_kind,
+            headline=headline,
+            note=note,
+        )
+        await self.notifier.notify_trade_comment(
+            dedupe_key=f"warn:{pos.trade_id}:dd:{deepest:.2f}",
+            trade_id=pos.trade_id,
+            priority=priority,
+            channel=pos.metadata.get("slack_channel") or profile.slack_channel,
+            thread_ts=pos.metadata.get("slack_thread_ts"),
+            slack_text=comment_bundle.slack_text,
+            slack_blocks=comment_bundle.slack_blocks,
+            reddit_post_id=pos.metadata.get("reddit_post_id"),
+            reddit_comment_body=comment_bundle.reddit_markdown,
+            label=label,
+            reply_broadcast=self.settings.notifications.broadcast_management_updates,
+        )
+        return True
+
+    async def _maybe_notify_thesis_warning(
+        self,
+        pos: Position,
+        signal: TradeSignal,
+        state: MarketStateSnapshot,
+        profile: SymbolProfile,
+        *,
+        already_notified: bool,
+        entered_momentum_decay: bool,
+    ) -> bool:
+        if not self.settings.notifications.notify_thesis_warnings or already_notified:
+            return False
+
+        if signal.signal_type == SignalType.EXIT_WARNING:
+            warn_kind = "EXIT_WARNING"
+            rank = 3
+            headline = "🚨 EXIT WARNING · STRONG REVERSAL"
+            priority = AlertPriority.CRITICAL
+            note = "Severe volatility or strong opposing momentum shift detected. Review position immediately."
+            label = "exit_warning"
+        elif signal.signal_type == SignalType.REVERSAL_WARNING:
+            warn_kind = "REVERSAL_WARNING"
+            rank = 2
+            headline = "⚠️ REVERSAL WARNING · MOMENTUM SHIFT"
+            priority = AlertPriority.WARNING
+            note = "Squeeze momentum crossed or showed exhaustion against this position. Watch protective stop closely."
+            label = "reversal_warning"
+        else:
+            # MOMENTUM_DECAY and routine softening are tracked silently without noisy alerts
+            return False
+
+        prev_rank = int(pos.metadata.get("last_thesis_warning_rank", 0))
+        prev_bar = int(pos.metadata.get("last_thesis_warning_bar", -9999))
+        if self.settings.notifications.thesis_warning_escalation_only:
+            if rank <= prev_rank:
+                return False
+        else:
+            cooldown = self.settings.notifications.thesis_warning_cooldown_bars
+            if rank <= prev_rank and (pos.bars_held - prev_bar) < cooldown:
+                return False
+
+        pos.metadata["last_thesis_warning_rank"] = rank
+        pos.metadata["last_thesis_warning_bar"] = pos.bars_held
+        self.storage.upsert_position(pos)
+
+        comment_bundle = build_position_warning_comment_bundle(
+            pos,
+            state,
+            profile,
+            warning_kind=warn_kind,
+            headline=headline,
+            note=note,
+            detail=(
+                f"Squeeze: {state.squeeze_state.value} · "
+                f"Momentum: {state.momentum_state.value} · Regime: {state.regime.value}"
+            ),
+        )
+        await self.notifier.notify_trade_comment(
+            dedupe_key=f"warn:{pos.trade_id}:thesis:{warn_kind}:{pos.bars_held}",
+            trade_id=pos.trade_id,
+            priority=priority,
+            channel=pos.metadata.get("slack_channel") or profile.slack_channel,
+            thread_ts=pos.metadata.get("slack_thread_ts"),
+            slack_text=comment_bundle.slack_text,
+            slack_blocks=comment_bundle.slack_blocks,
+            reddit_post_id=pos.metadata.get("reddit_post_id"),
+            reddit_comment_body=comment_bundle.reddit_markdown,
+            label=label,
+            reply_broadcast=self.settings.notifications.broadcast_management_updates,
+        )
+        return True
 
     async def _monitor_open_position_intrabar(
         self,
@@ -551,6 +719,7 @@ class EngineOrchestrator:
                 await self._maybe_notify_management_event(pos, prev_stop, decision, event, state, profile)
             return
 
+        await self._maybe_notify_drawdown_warning(pos, state, profile)
         self.storage.upsert_position(pos)
 
     async def _close_position(self, pos: Position, exit_price: float, reason: ExitReason, state: MarketStateSnapshot, profile) -> None:
