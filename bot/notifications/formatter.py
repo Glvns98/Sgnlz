@@ -20,6 +20,17 @@ from bot.core.models import (
     Position,
     TradeSignal,
 )
+from bot.deriv.discovery import normalize_symbol_description
+
+
+def _symbol_label(symbol: str, description: str) -> str:
+    desc = normalize_symbol_description(symbol, description)
+    return f"{desc} (`{symbol}`)" if desc.upper() != symbol.upper() else f"`{symbol}`"
+
+
+def _symbol_plain(symbol: str, description: str) -> str:
+    desc = normalize_symbol_description(symbol, description)
+    return f"{desc} ({symbol})" if desc.upper() != symbol.upper() else symbol
 
 
 @dataclass(frozen=True)
@@ -291,7 +302,7 @@ def build_trade_opened_bundle(
     symbol_history_trades: list[ClosedTrade] | None = None,
 ) -> TradeOpenedBundle:
     emoji, dir_label = _dir_meta(position.direction)
-    desc = symbol_cfg.description or position.symbol
+    desc = normalize_symbol_description(position.symbol, symbol_cfg.description or position.symbol)
     score, grade = score_and_grade(signal.confidence)
     grade_badge = _grade_badge(grade)
     stars = _stars(score)
@@ -355,7 +366,7 @@ def build_trade_opened_bundle(
         why_lines_slack = ["✅ Aligned 15m Squeeze momentum"]
     why_lines_reddit = "\n".join(f"- {line}" for line in why_lines_slack)
 
-    header_plain = f"{emoji} {dir_label}  ·  {desc} ({tf_label} Scalp)"[:148]
+    header_plain = f"{emoji} {dir_label}  ·  {desc} ({position.symbol})  ·  {tf_label} Scalp"[:148]
     squeeze_summary = (
         f"{scolor_txt}  ·  {bcolor_txt}  ·  `val` `{snap.val:+.4f}`  ·  "
         f"Strength `{snap.momentum_strength:.2f}`  ·  {sqz_desc}"
@@ -447,7 +458,7 @@ def build_trade_opened_bundle(
     ]
 
     slack_text = (
-        f"{emoji} {dir_label} {position.symbol} ({tf_label} Scalp) · {grade_badge} · "
+        f"{emoji} {dir_label} · {desc} ({position.symbol}) ({tf_label} Scalp) · {grade_badge} · "
         f"Entry {format_price(entry)} · SL {format_price(sl)}"
     )
     return TradeOpenedBundle(
@@ -495,9 +506,11 @@ def build_management_comment_bundle(
     new_px = format_price(new_stop)
     entry_px = format_price(position.entry_price)
     cur_px = format_price(event.current_price)
+    sym_md = _symbol_label(position.symbol, symbol_cfg.description)
+    sym_plain = _symbol_plain(position.symbol, symbol_cfg.description)
 
     reddit_md = (
-        f"### {icon} {action_title} · {emoji} {dir_label} `{position.symbol}`\n"
+        f"### {icon} {action_title} · {emoji} {dir_label} · {sym_md}\n"
         f"`{meter}` **{cur:+.2f}R**\n\n"
         f"> 💡 {note}\n\n"
         f"- 📍 **Entry:** `{entry_px}`  ·  💹 **Now:** `{cur_px}` (`{cur:+.2f}R`)\n"
@@ -511,7 +524,7 @@ def build_management_comment_bundle(
             "text": {
                 "type": "mrkdwn",
                 "text": (
-                    f"*{icon} {action_title}*  ·  {emoji} {dir_label} `{position.symbol}`\n"
+                    f"*{icon} {action_title}*  ·  {emoji} {dir_label} · {sym_md}\n"
                     f"`{meter}`  *{cur:+.2f}R*"
                 )[:2900],
             },
@@ -543,7 +556,7 @@ def build_management_comment_bundle(
         },
     ]
 
-    slack_text = f"{icon} {action_title} · {position.symbol} · Stop {old_px} ➜ {new_px} · {cur:+.2f}R"
+    slack_text = f"{icon} {action_title} · {sym_plain} · Stop {old_px} ➜ {new_px} · {cur:+.2f}R"
     return CommentBundle(reddit_markdown=reddit_md, slack_text=slack_text, slack_blocks=slack_blocks)
 
 
@@ -568,13 +581,15 @@ def build_position_warning_comment_bundle(
     entry_px = format_price(position.entry_price)
     cur_px = format_price(position.current_price)
     stop_px = format_price(position.current_stop)
+    sym_md = _symbol_label(position.symbol, symbol_cfg.description)
+    sym_plain = _symbol_plain(position.symbol, symbol_cfg.description)
     detail_line = detail.strip() or (
         f"Kind: {warning_kind} · Squeeze: {market_state.squeeze_state.value} · "
         f"Momentum: {market_state.momentum_state.value}"
     )
 
     reddit_md = (
-        f"### {headline} · {emoji} {dir_label} `{position.symbol}`\n"
+        f"### {headline} · {emoji} {dir_label} · {sym_md}\n"
         f"📉 **Live PnL:** `{cur:+.2f}R`  ·  📏 **Buffer to Stop:** `{remaining_to_stop_r:.2f}R`\n\n"
         f"> 💡 {note}\n"
         f"> {detail_line}\n\n"
@@ -593,7 +608,7 @@ def build_position_warning_comment_bundle(
             "text": {
                 "type": "mrkdwn",
                 "text": (
-                    f"*{headline}*  ·  {emoji} {dir_label} `{position.symbol}`\n"
+                    f"*{headline}*  ·  {emoji} {dir_label} · {sym_md}\n"
                     f"📉 Live PnL *{cur:+.2f}R*  ·  📏 Buffer to Stop `{remaining_to_stop_r:.2f}R`"
                 )[:2900],
             },
@@ -626,7 +641,7 @@ def build_position_warning_comment_bundle(
     ]
 
     slack_text = (
-        f"{headline} · {position.symbol} · {cur:+.2f}R · "
+        f"{headline} · {sym_plain} · {cur:+.2f}R · "
         f"Stop {stop_px} ({remaining_to_stop_r:.2f}R buffer)"
     )
     return CommentBundle(reddit_markdown=reddit_md, slack_text=slack_text, slack_blocks=slack_blocks)
@@ -657,9 +672,11 @@ def build_trade_closed_comment_bundle(
     exit_label = _EXIT_LABEL.get(trade.exit_reason, "🏁 Closed")
     entry_px = format_price(trade.entry)
     exit_px = format_price(trade.exit)
+    sym_md = _symbol_label(trade.symbol, symbol_cfg.description)
+    sym_plain = _symbol_plain(trade.symbol, symbol_cfg.description)
 
     reddit_md = (
-        f"### {headline} · {emoji} {dir_label} `{trade.symbol}`\n"
+        f"### {headline} · {emoji} {dir_label} · {sym_md}\n"
         f"{exit_label}\n\n"
         f"> 💡 {note}\n\n"
         f"- 📍 **Entry ➜ 🏁 Exit:** `{entry_px}` ➜ `{exit_px}`\n"
@@ -673,7 +690,7 @@ def build_trade_closed_comment_bundle(
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"*{headline}*  ·  {emoji} {dir_label} `{trade.symbol}`\n{exit_label}"[:2900],
+                "text": f"*{headline}*  ·  {emoji} {dir_label} · {sym_md}\n{exit_label}"[:2900],
             },
         },
         {
@@ -703,5 +720,5 @@ def build_trade_closed_comment_bundle(
         },
     ]
 
-    slack_text = f"{headline} · {trade.symbol} · {exit_label}"
+    slack_text = f"{headline} · {sym_plain} · {exit_label}"
     return CommentBundle(reddit_markdown=reddit_md, slack_text=slack_text, slack_blocks=slack_blocks)

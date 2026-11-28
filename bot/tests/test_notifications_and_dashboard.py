@@ -478,3 +478,59 @@ async def test_warning_comment_bundle_and_alert_mention(tmp_path) -> None:
     notice_comment = (tmp_path / "reddit" / "TRD-WARN-1" / "02_comment_move_to_breakeven.md").read_text(encoding="utf-8")
     assert "🔔 *Alert:* u/Gelvinus" in warn_comment
     assert "🔔 *Alert:* u/Gelvinus" in notice_comment
+
+
+def test_volatility_1s_vs_standard_index_disambiguation() -> None:
+    now = datetime(2026, 1, 1, 14, 0, tzinfo=UTC)
+    prof_1s = SymbolProfile(symbol="1HZ15V", description="Volatility 15 Index")
+    ms_1s = make_market_state(symbol="1HZ15V", close=2450.0, val=1.8, prev_val=1.2)
+    sig_1s = TradeSignal(
+        signal_id="sig-1hz15v",
+        symbol="1HZ15V",
+        direction=TradeDirection.BUY,
+        signal_type=SignalType.NEW_OPPORTUNITY,
+        squeeze_state=SqueezeState.SQUEEZE_OFF,
+        momentum_state=MomentumState.STRONG_BULLISH,
+        momentum_strength=0.8,
+        confidence=0.82,
+        regime=MarketRegime.EXPANSION_TREND,
+        timestamp=now,
+        timeframe_sec=900,
+        entry_price=2450.0,
+        suggested_stop=2430.0,
+        initial_risk_distance=20.0,
+    )
+    pos_1s = Position(
+        trade_id="TRD-1HZ15V",
+        idempotency_key="idem-1hz15v",
+        symbol="1HZ15V",
+        direction=TradeDirection.BUY,
+        stage=TradeStage.ENTERED,
+        entry_price=2450.0,
+        current_price=2450.0,
+        initial_stop=2430.0,
+        current_stop=2430.0,
+        take_profit=None,
+        stake=100.0,
+        remaining_fraction=1.0,
+        multiplier=40.0,
+        initial_risk_amount=100.0,
+        initial_risk_distance=20.0,
+        opened_at=now,
+        last_updated_at=now,
+    )
+    opened = build_trade_opened_bundle(pos_1s, sig_1s, ms_1s, prof_1s, ManagementSettings(), risk_pct=0.01)
+    assert "Volatility 15 (1s) Index (1HZ15V)" in opened.title
+    assert "Volatility 15 (1s) Index (1HZ15V)" in opened.slack_blocks[0]["text"]["text"]
+    assert "Volatility 15 (1s) Index (1HZ15V)" in opened.slack_text
+
+    warn = build_position_warning_comment_bundle(
+        pos_1s,
+        ms_1s,
+        prof_1s,
+        warning_kind="MOMENTUM_WEAKENING",
+        headline="🟡 TREND WEAKENING · MOMENTUM FADING",
+        note="Histogram shifted from bright to dark.",
+    )
+    assert "Volatility 15 (1s) Index (`1HZ15V`)" in warn.reddit_markdown
+    assert "Volatility 15 (1s) Index (1HZ15V)" in warn.slack_text

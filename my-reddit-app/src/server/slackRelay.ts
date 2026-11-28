@@ -605,6 +605,23 @@ function parseNumberToken(raw: string | undefined): number {
   return Number.isFinite(num) ? num : NaN;
 }
 
+function normalizeSymbolName(symbol: string, rawName: string): string {
+  const sym = (symbol || '').trim().toUpperCase();
+  const hz = sym.match(/^1HZ(\d+)V$/);
+  if (hz) return `Volatility ${hz[1]} (1s) Index`;
+  const std = sym.match(/^R_(\d+)$/);
+  if (std) return `Volatility ${std[1]} Index`;
+
+  const symEscaped = sym.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  let cleaned = (rawName || '')
+    .replace(/\(\s*(?:\d+\s*[mhdw]|scalp|15m\s*scalp)[^)]*\)/gi, '')
+    .trim();
+  if (symEscaped) {
+    cleaned = cleaned.replace(new RegExp(`\\(\\s*${symEscaped}\\s*\\)`, 'gi'), '').trim();
+  }
+  return cleaned.replace(/\s{2,}/g, ' ') || symbol;
+}
+
 function parsePythonScalpSignal(
   channelName: string,
   channelId: string,
@@ -625,14 +642,15 @@ function parsePythonScalpSignal(
 
   const direction = dirMatch[1].toUpperCase() as 'LONG' | 'SHORT';
   const ch = getChannelDef(channelName);
-  const plainHeader = slackToPlain(header);
-  const afterDir = plainHeader.split('·')[1] ?? plainHeader;
-  const name = afterDir.replace(/\([^)]*\)/g, '').trim() || channelName;
 
   const ctxBlock = blocks.find((b) => b.type === 'context' && (b.elements ?? []).some((e) => typeof e.text === 'string' && /🏷️|🆔/.test(e.text)));
   const ctxText = (ctxBlock?.elements ?? []).map((e) => (typeof e.text === 'string' ? slackToPlain(e.text) : '')).join(' · ');
   const symMatch = ctxText.match(/🏷️\s*([A-Za-z0-9_.-]+)/);
   const symbol = symMatch?.[1] ?? channelName.toUpperCase();
+
+  const plainHeader = slackToPlain(header);
+  const afterDir = plainHeader.split('·')[1] ?? plainHeader;
+  const name = normalizeSymbolName(symbol, afterDir) || channelName;
   const timeMatch = ctxText.match(/(\d{2}:\d{2}\s*UTC)/i);
   const timeUtc = timeMatch?.[1] ?? `${new Date(publishedEpoch * 1000).toISOString().slice(11, 16)} UTC`;
   const idMatch = ctxText.match(/🆔\s*([A-Za-z0-9_-]+)/);
@@ -811,14 +829,16 @@ export function parseSlackMessage(
   // 1. Signal Card (compact JSON ref OR native 15m Scalping Block Kit card)
   const ref = extractCompactRef(blocks);
   if (ref) {
+    const normName = normalizeSymbolName(ref.sym, ref.name);
+    const normRef: ParsedSignalRef = { ...ref, name: normName };
     const scoreMatch = header.match(/Score\s+(\d+(?:\.\d+)?)\/100/i);
     const score = scoreMatch ? Number(scoreMatch[1]) : 75;
-    const dot = ref.dir === 'LONG' ? '🟢' : '🔴';
-    const title = `${dot} ${ref.dir} · ${ref.name} (${ref.sym}) · Grade ${ref.g} · Score ${Math.round(score)}/100`.slice(
+    const dot = normRef.dir === 'LONG' ? '🟢' : '🔴';
+    const title = `${dot} ${normRef.dir} · ${normName} (${normRef.sym}) · Grade ${normRef.g} · Score ${Math.round(score)}/100`.slice(
       0,
       295
     );
-    const { card, detail } = buildStructuredSignalCard(channelName, ref, score, publishedEpoch, blocks);
+    const { card, detail } = buildStructuredSignalCard(channelName, normRef, score, publishedEpoch, blocks);
     const body = formatOptionBSignalBody(card, detail);
     return {
       kind: 'signal',
@@ -826,21 +846,21 @@ export function parseSlackMessage(
       channelId,
       channelName,
       signalId: card.signalId,
-      symbol: ref.sym,
-      name: ref.name,
-      direction: ref.dir,
-      grade: ref.g,
+      symbol: normRef.sym,
+      name: normName,
+      direction: normRef.dir,
+      grade: normRef.g,
       score,
-      entry: ref.e,
-      sl: ref.sl,
-      tp1: ref.t1,
-      tp2: ref.t2,
-      tp3: ref.t3,
-      sizeMult: ref.sm,
-      regimeCode: ref.rc,
-      decimals: ref.dec,
-      pipValue: ref.pv,
-      pipUnit: ref.pu,
+      entry: normRef.e,
+      sl: normRef.sl,
+      tp1: normRef.t1,
+      tp2: normRef.t2,
+      tp3: normRef.t3,
+      sizeMult: normRef.sm,
+      regimeCode: normRef.rc,
+      decimals: normRef.dec,
+      pipValue: normRef.pv,
+      pipUnit: normRef.pu,
       title,
       body,
       publishedEpoch,
@@ -856,7 +876,7 @@ export function parseSlackMessage(
 
   // 2. Trade Lifecycle Update (reply or broadcast on a signal thread)
   const isLifecycleHeader =
-    /BREAKEVEN SECURED|PROFIT LOCKED|TRAILING STOP MOVED|STOP TIGHTENED|PARTIAL TAKEN|RISK WARNING|DANGER ZONE|EXIT WARNING|REVERSAL WARNING|MOMENTUM WARNING|WIN ·|SCRATCH ·|LOSS CAPPED|PARAMETER|TP1 HIT|TP2 HIT|TP3 HIT|STOP LOSS|BREAKEVEN|TRAILING STOP|EARLY EXIT|MANUAL CLOSE|TIME EXPIRY/i.test(
+    /BREAKEVEN SECURED|PROFIT LOCKED|TRAILING STOP MOVED|STOP TIGHTENED|PARTIAL TAKEN|RISK WARNING|DANGER ZONE|EXIT WARNING|REVERSAL WARNING|MOMENTUM WARNING|TREND WEAKENING|WIN ·|SCRATCH ·|LOSS CAPPED|PARAMETER|TP1 HIT|TP2 HIT|TP3 HIT|STOP LOSS|BREAKEVEN|TRAILING STOP|EARLY EXIT|MANUAL CLOSE|TIME EXPIRY/i.test(
       effHeader
     );
   if (isLifecycleHeader || (msg.thread_ts && msg.thread_ts !== msg.ts)) {
@@ -869,7 +889,7 @@ export function parseSlackMessage(
     const rMatch = (msg.text || body).match(/([+-]\d+\.\d+R)/);
     const rLabel = rMatch ? rMatch[1] : '';
     const kindMatch = effHeader.match(
-      /(PROFIT LOCKED|TRAILING STOP|BREAKEVEN|STOP TIGHTENED|PARTIAL|RISK WARNING|DANGER ZONE|EXIT WARNING|REVERSAL WARNING|MOMENTUM WARNING|WIN|SCRATCH|LOSS CAPPED|TP3|TP2|TP1|STOP LOSS|EARLY EXIT|TIME EXPIRY|MANUAL CLOSE|PARAMETER)/i
+      /(PROFIT LOCKED|TRAILING STOP|BREAKEVEN|STOP TIGHTENED|PARTIAL|RISK WARNING|DANGER ZONE|EXIT WARNING|REVERSAL WARNING|MOMENTUM WARNING|TREND WEAKENING|WIN|SCRATCH|LOSS CAPPED|TP3|TP2|TP1|STOP LOSS|EARLY EXIT|TIME EXPIRY|MANUAL CLOSE|PARAMETER)/i
     );
     const kindTag = kindMatch ? kindMatch[1].toUpperCase() : 'UPDATE';
     return {

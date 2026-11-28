@@ -2,11 +2,28 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
 from bot.config.settings import SymbolProfile
 from bot.deriv.client import DerivAPIClient
+
+_HZ_VOL_RE = re.compile(r"^1HZ(\d+)V$", re.IGNORECASE)
+_STD_VOL_RE = re.compile(r"^R_(\d+)$", re.IGNORECASE)
+
+
+def normalize_symbol_description(symbol: str, raw_name: str = "") -> str:
+    """Return an unambiguous human-readable Deriv instrument name (distinguishing 1s indices)."""
+    sym = (symbol or "").strip().upper()
+    hz_match = _HZ_VOL_RE.match(sym)
+    if hz_match:
+        return f"Volatility {hz_match.group(1)} (1s) Index"
+    std_match = _STD_VOL_RE.match(sym)
+    if std_match:
+        return f"Volatility {std_match.group(1)} Index"
+    cleaned = " ".join((raw_name or "").split()).strip()
+    return cleaned or symbol
 
 
 @dataclass(frozen=True)
@@ -294,16 +311,20 @@ def parse_active_symbols(
 
         market = str(item.get("market") or "synthetic_index")
         submarket = str(item.get("submarket") or "random_index")
-        name = str(item.get("underlying_symbol_name") or item.get("display_name") or symbol)
+        name = normalize_symbol_description(
+            symbol,
+            str(item.get("underlying_symbol_name") or item.get("display_name") or symbol),
+        )
         is_open = int(item.get("exchange_is_open", 1)) == 1
         route = routing_for(market, submarket)
 
         if symbol in override_map:
             base = override_map[symbol]
+            resolved_name = normalize_symbol_description(symbol, name or base.description)
             result[symbol] = base.model_copy(
                 update={
                     "enabled": True,
-                    "description": name or base.description,
+                    "description": resolved_name,
                     "market": market,
                     "submarket": submarket,
                     "exchange_is_open": is_open,

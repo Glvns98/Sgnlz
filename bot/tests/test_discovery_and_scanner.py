@@ -71,6 +71,14 @@ def test_parse_active_symbols_routes_all_groups_and_skips_suspended() -> None:
             "is_trading_suspended": 0,
         },
         {
+            "underlying_symbol": "1HZ15V",
+            "underlying_symbol_name": "Volatility 15 Index",
+            "market": "synthetic_index",
+            "submarket": "random_index",
+            "exchange_is_open": 1,
+            "is_trading_suspended": 0,
+        },
+        {
             "underlying_symbol": "SUSPENDED_SYM",
             "underlying_symbol_name": "Suspended",
             "market": "synthetic_index",
@@ -84,8 +92,10 @@ def test_parse_active_symbols_routes_all_groups_and_skips_suspended() -> None:
     }
     parsed = parse_active_symbols(raw, overrides=overrides)
     assert "SUSPENDED_SYM" not in parsed
+    assert parsed["R_100"].description == "Volatility 100 Index"
     assert parsed["R_100"].slack_channel == "C0CJWBD99QD"
     assert parsed["R_100"].cooldown_bars == 7
+    assert parsed["1HZ15V"].description == "Volatility 15 (1s) Index"
     assert parsed["BOOM1000"].slack_channel == "C0CJWBE5E2Z"
     assert parsed["frxEURUSD"].slack_channel == "C0CJWBHVAMT"
     assert parsed["cryBTCUSD"].slack_channel == "C0CK3GYBY7K"

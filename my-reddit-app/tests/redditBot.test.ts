@@ -747,4 +747,67 @@ describe('Cerynaean Hind Reddit App (r/GlvnsOrg)', () => {
     expect(isImportantLifecycleEvent('HOLD', false)).toBe(false);
     expect(isImportantLifecycleEvent('MOMENTUM WARNING', false)).toBe(false);
   });
+
+  it('preserves (1s) volatility index naming on Slack relay and parses TREND WEAKENING updates', () => {
+    const headers = [
+      '🟢 LONG  ·  Volatility 15 (1s) Index (1HZ15V)  ·  15m Scalp',
+      '🟢 LONG  ·  Volatility 15 (1s) Index (15m Scalp)',
+    ];
+    for (const hdr of headers) {
+      const parsed = parseSlackMessage('volatility-indices', 'C0CJWBD99QD', {
+        ts: '1795571000.000100',
+        blocks: [
+          { type: 'header', text: { type: 'plain_text', text: hdr } },
+          {
+            type: 'context',
+            elements: [{ type: 'mrkdwn', text: '🏷️ `1HZ15V`  ·  ⚡ `15m Scalp`  ·  📈 #volatility-indices  ·  ⏰ 12:00 UTC  ·  🆔 `TRD-1S15`' }],
+          },
+          { type: 'section', text: { type: 'mrkdwn', text: '🔥 B+  ⭐⭐⭐⭐☆  ·  *78/100*\n🚀 Expansion Trend' } },
+          {
+            type: 'section',
+            text: { type: 'mrkdwn', text: '*🎯 SCALP EXECUTION PLAN*' },
+            fields: [
+              { type: 'mrkdwn', text: '*📍 Entry*\n`2,450.00`' },
+              { type: 'mrkdwn', text: '*🛡️ Stop Loss*\n`2,430.00` (0.82%)' },
+              { type: 'mrkdwn', text: '*⚖️ Risk*\n`1.00%` equity' },
+            ],
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*🪜 PROFIT & PROTECTION LADDER*\n🔐 *Breakeven* (+0.50R) ➜ `2,460.00`\n🔒 *Profit Lock* (+1.00R) ➜ `2,470.00`',
+            },
+          },
+        ],
+      });
+      expect(parsed?.kind).toBe('signal');
+      if (parsed?.kind === 'signal') {
+        expect(parsed.symbol).toBe('1HZ15V');
+        expect(parsed.name).toBe('Volatility 15 (1s) Index');
+        expect(parsed.title).toContain('Volatility 15 (1s) Index (1HZ15V)');
+      }
+    }
+
+    const weakEv = parseSlackMessage('volatility-indices', 'C0CJWBD99QD', {
+      ts: '1795571050.000100',
+      thread_ts: '1795571000.000100',
+      subtype: 'thread_broadcast',
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '*🟡 TREND WEAKENING · MOMENTUM FADING*  ·  🟢 LONG · Volatility 15 (1s) Index (`1HZ15V`)\n📉 Live PnL *+0.65R*  ·  📏 Buffer to Stop `0.60R`',
+          },
+        },
+        { type: 'section', text: { type: 'mrkdwn', text: '> 💡 Histogram shifted from bright to dark.' } },
+      ],
+    });
+    expect(weakEv?.kind).toBe('lifecycle');
+    if (weakEv?.kind === 'lifecycle') {
+      expect(weakEv.isFinal).toBe(false);
+      expect(weakEv.kindTag).toBe('TREND WEAKENING');
+    }
+  });
 });
