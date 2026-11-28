@@ -201,7 +201,7 @@ async def test_rich_glvnsorg_card_and_threaded_comments(tmp_path) -> None:
         confidence=0.78,
         regime=MarketRegime.EXPANSION_TREND,
         timestamp=now,
-        timeframe_sec=900,
+        timeframe_sec=300,
         entry_price=1653.50,
         suggested_stop=1622.00,
         initial_risk_distance=31.50,
@@ -232,7 +232,7 @@ async def test_rich_glvnsorg_card_and_threaded_comments(tmp_path) -> None:
     assert bundle.title == "🟢 LONG · Volatility 100 Index (R_100) · 🔥 B+ · 78/100"
     assert "### 🎯 Scalp Execution Plan" in bundle.reddit_markdown
     assert "### 🪜 Profit & Protection Ladder" in bundle.reddit_markdown
-    assert "### ⚡ 15m Scalp Readout" in bundle.reddit_markdown
+    assert "### ⚡ 5m Scalp Readout" in bundle.reddit_markdown
     assert "### 🧭 Timeframes" not in bundle.reddit_markdown
     assert "| Milestone |" not in bundle.reddit_markdown
     assert "```" not in bundle.reddit_markdown
@@ -291,7 +291,7 @@ async def test_rich_glvnsorg_card_and_threaded_comments(tmp_path) -> None:
     assert "📐 TRAILING STOP MOVED" in mgmt_bundle.reddit_markdown
     assert "> 💡" in mgmt_bundle.reddit_markdown
     assert "`1,653.50` ➜ `1,672.16`" in mgmt_bundle.reddit_markdown
-    assert "3h 00m" in mgmt_bundle.reddit_markdown
+    assert "1h 00m" in mgmt_bundle.reddit_markdown
     assert "🎯 **Next:**" in mgmt_bundle.reddit_markdown
     assert "| 📍" not in mgmt_bundle.reddit_markdown
     assert len(mgmt_bundle.slack_blocks) >= 4

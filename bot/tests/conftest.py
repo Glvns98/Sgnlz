@@ -102,7 +102,7 @@ def make_market_state(
     )
     return MarketStateSnapshot(
         symbol=symbol,
-        timeframe_sec=900,
+        timeframe_sec=300,
         timestamp=datetime.fromtimestamp(epoch, tz=UTC),
         close=close,
         high=high,

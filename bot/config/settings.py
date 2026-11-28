@@ -166,7 +166,7 @@ class SymbolProfile(BaseModel):
     market: str = "synthetic_index"
     submarket: str = "random_index"
     exchange_is_open: bool = True
-    primary_timeframe: int = Field(default=900, ge=60)
+    primary_timeframe: int = Field(default=300, ge=60)
     higher_timeframe: int | None = None
     lower_timeframe: int | None = None
     multiplier: float = Field(default=50.0, gt=0.0)

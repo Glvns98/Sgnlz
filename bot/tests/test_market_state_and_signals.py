@@ -49,12 +49,12 @@ def test_market_state_squeeze_momentum_transitions_and_regimes(synthetic_candles
 
 
 def test_mtf_analyzer_attaches_htf_and_ltf_context(synthetic_candles: list[Candle]) -> None:
-    mtf = MultiTimeframeAnalyzer("R_100", primary_tf=900, higher_tf=3600, lower_tf=300)
+    mtf = MultiTimeframeAnalyzer("R_100", primary_tf=300, higher_tf=900, lower_tf=60)
     for i, c in enumerate(synthetic_candles[:100]):
-        if i % 4 == 0:
-            htf = Candle("R_100", 3600, c.epoch, c.open, c.high, c.low, c.close)
+        if i % 3 == 0:
+            htf = Candle("R_100", 900, c.epoch, c.open, c.high, c.low, c.close)
             mtf.update(htf)
-        ltf = Candle("R_100", 300, c.epoch, c.open, c.high, c.low, c.close)
+        ltf = Candle("R_100", 60, c.epoch, c.open, c.high, c.low, c.close)
         mtf.update(ltf)
         primary = mtf.update(c)
     assert primary is not None

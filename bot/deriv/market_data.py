@@ -89,7 +89,7 @@ class MarketDataEngine:
             newly_closed.append(candle)
         return newly_closed
 
-    async def fetch_latest_price_bar(self, symbol: str, timeframe_sec: int = 900) -> Candle | None:
+    async def fetch_latest_price_bar(self, symbol: str, timeframe_sec: int = 300) -> Candle | None:
         """Fetch the active forming candle for intra-bar position monitoring without mutating closed history."""
         resp = await self.client.request(
             {

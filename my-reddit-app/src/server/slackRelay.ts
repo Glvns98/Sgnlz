@@ -536,11 +536,12 @@ export function formatOptionBSignalBody(card: SignalCardPostData, detail: Signal
     ? `  ·  Pullback Limit: \`${fmtNum(card.limit, dec)}\`${detail.validUntil ? ` (until ${detail.validUntil})` : ''}`
     : '';
 
+  const tfLabel = (card.tf || '5m').replace(/^v\d+\s*·\s*/i, '').trim() || '5m';
   const lines: string[] = [
     `- 📍 **Entry:** \`${fmtNum(card.entry, dec)}\`${limitSummary}`,
     `- 🛡️ **Stop Loss:** \`${fmtNum(card.sl, dec)}\` (${slPctStr}${card.atrMult ? ` · ${card.atrMult}` : ''})`,
     `- ⚖️ **Position Risk:** \`${card.sizeMult.toFixed(2)}%\` equity`,
-    `- ⏱️ **Timeframe & Monitor:** \`${card.tf || '15m'}\` pure squeeze · Monitored live until close`,
+    `- ⏱️ **Timeframe & Monitor:** \`${tfLabel}\` pure squeeze · Monitored live until close`,
     '',
     '---',
     '',
@@ -567,8 +568,8 @@ export function formatOptionBSignalBody(card: SignalCardPostData, detail: Signal
   }
 
   const readoutTitle = detail.confluenceSummary
-    ? `### ⚡ 15m Scalp Readout (${detail.confluenceSummary})`
-    : '### ⚡ 15m Scalp Readout';
+    ? `### ⚡ ${tfLabel} Scalp Readout (${detail.confluenceSummary})`
+    : `### ⚡ ${tfLabel} Scalp Readout`;
   lines.push(readoutTitle, '');
   if (detail.regimeSummary) {
     lines.push(detail.regimeSummary, '');
@@ -605,16 +606,58 @@ function parseNumberToken(raw: string | undefined): number {
   return Number.isFinite(num) ? num : NaN;
 }
 
+const CANONICAL_SYMBOL_NAMES: Record<string, string> = {
+  OTC_DJI: 'Wall Street 30',
+  OTC_NDX: 'US Tech 100',
+  OTC_SPC: 'US 500',
+  OTC_AS51: 'Australia 200',
+  OTC_HSI: 'Hong Kong 50',
+  OTC_N225: 'Japan 225',
+  OTC_AEX: 'Netherlands 25',
+  OTC_FCHI: 'France 40',
+  OTC_FTSE: 'UK 100',
+  OTC_GDAXI: 'Germany 40',
+  OTC_SSMI: 'Swiss 20',
+  OTC_SX5E: 'Euro 50',
+  RDBEAR: 'Bear Market Index',
+  RDBULL: 'Bull Market Index',
+  STPRNG: 'Step Index 100',
+  STPRNG2: 'Step Index 200',
+  STPRNG3: 'Step Index 300',
+  STPRNG4: 'Step Index 400',
+  STPRNG5: 'Step Index 500',
+  FRXXAUUSD: 'Gold/USD',
+  FRXXAGUSD: 'Silver/USD',
+  FRXXPDUSD: 'Palladium/USD',
+  FRXXPTUSD: 'Platinum/USD',
+  WLDXAU: 'Gold Basket',
+};
+
 function normalizeSymbolName(symbol: string, rawName: string): string {
   const sym = (symbol || '').trim().toUpperCase();
+  if (CANONICAL_SYMBOL_NAMES[sym]) return CANONICAL_SYMBOL_NAMES[sym];
   const hz = sym.match(/^1HZ(\d+)V$/);
   if (hz) return `Volatility ${hz[1]} (1s) Index`;
   const std = sym.match(/^R_(\d+)$/);
   if (std) return `Volatility ${std[1]} Index`;
+  const boom = sym.match(/^BOOM(\d+)N?$/);
+  if (boom) return `Boom ${boom[1]} Index`;
+  const crash = sym.match(/^CRASH(\d+)N?$/);
+  if (crash) return `Crash ${crash[1]} Index`;
+  const jump = sym.match(/^JD(\d+)$/);
+  if (jump) return `Jump ${jump[1]} Index`;
+  const range = sym.match(/^RB(\d+)$/);
+  if (range) return `Range Break ${range[1]} Index`;
+  const basket = sym.match(/^WLD([A-Z]{3})$/);
+  if (basket) return `${basket[1]} Basket`;
+  const frx = sym.match(/^FRX([A-Z]{3})([A-Z]{3})$/);
+  if (frx) return `${frx[1]}/${frx[2]}`;
+  const cry = sym.match(/^CRY([A-Z]{2,6})USD$/);
+  if (cry) return `${cry[1]}/USD`;
 
   const symEscaped = sym.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   let cleaned = (rawName || '')
-    .replace(/\(\s*(?:\d+\s*[mhdw]|scalp|15m\s*scalp)[^)]*\)/gi, '')
+    .replace(/\(\s*(?:\d+\s*[mhdw]|scalp|\d+\s*[mhdw]\s*scalp)[^)]*\)/gi, '')
     .trim();
   if (symEscaped) {
     cleaned = cleaned.replace(new RegExp(`\\(\\s*${symEscaped}\\s*\\)`, 'gi'), '').trim();
@@ -651,6 +694,8 @@ function parsePythonScalpSignal(
   const plainHeader = slackToPlain(header);
   const afterDir = plainHeader.split('·')[1] ?? plainHeader;
   const name = normalizeSymbolName(symbol, afterDir) || channelName;
+  const tfMatch = `${plainHeader} ${ctxText}`.match(/\b(1m|3m|5m|15m|30m|1h|4h)\b/i);
+  const tf = tfMatch ? tfMatch[1].toLowerCase() : '5m';
   const timeMatch = ctxText.match(/(\d{2}:\d{2}\s*UTC)/i);
   const timeUtc = timeMatch?.[1] ?? `${new Date(publishedEpoch * 1000).toISOString().slice(11, 16)} UTC`;
   const idMatch = ctxText.match(/🆔\s*([A-Za-z0-9_-]+)/);
@@ -755,10 +800,10 @@ function parsePythonScalpSignal(
     sizeMult,
     pipValue: 0.01,
     pipUnit: 'pts',
-    regime: '⚡ 15m Scalp',
-    trigger: '15m Squeeze Breakout',
-    edge: trackSummary ? trackSummary.slice(0, 24) : '15m Live Track',
-    tf: '15m',
+    regime: `⚡ ${tf} Scalp`,
+    trigger: `${tf} Squeeze Breakout`,
+    edge: trackSummary ? trackSummary.slice(0, 24) : `${tf} Live Track`,
+    tf,
     session: 'Live Deriv',
     timeUtc: timeUtc.slice(0, 16),
     horizon: 'Live until close',
@@ -801,7 +846,7 @@ function parsePythonScalpSignal(
     tp2,
     tp3,
     sizeMult,
-    regimeCode: 'SCALP_15M',
+    regimeCode: `SCALP_${tf.toUpperCase()}`,
     decimals,
     pipValue: 0.01,
     pipUnit: 'pts',

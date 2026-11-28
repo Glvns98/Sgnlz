@@ -72,11 +72,11 @@ def _run_backtest_cmd(args: argparse.Namespace) -> int:
     candles_by_sym = {}
     if args.csv:
         sym = syms[0]
-        tf = settings.symbols[sym].primary_timeframe if sym in settings.symbols else 900
+        tf = settings.symbols[sym].primary_timeframe if sym in settings.symbols else 300
         candles_by_sym[sym] = load_candles_from_csv(args.csv, sym, timeframe_sec=tf)
     else:
         for idx, sym in enumerate(syms):
-            tf = settings.symbols[sym].primary_timeframe if sym in settings.symbols else 900
+            tf = settings.symbols[sym].primary_timeframe if sym in settings.symbols else 300
             candles_by_sym[sym] = generate_synthetic_deriv_candles(
                 sym, bars=args.bars, timeframe_sec=tf, seed=42 + idx * 17
             )
@@ -115,7 +115,7 @@ def _run_walkforward_cmd(args: argparse.Namespace) -> int:
         sym: generate_synthetic_deriv_candles(
             sym,
             bars=args.bars,
-            timeframe_sec=settings.symbols[sym].primary_timeframe if sym in settings.symbols else 900,
+            timeframe_sec=settings.symbols[sym].primary_timeframe if sym in settings.symbols else 300,
             seed=100 + idx * 13,
         )
         for idx, sym in enumerate(syms)

@@ -120,7 +120,7 @@ export function formatSignalPostBody(sig: SignalDto): string {
     `- 📍 **Entry:** \`${fmtPx(plan.entry, dec)}\`${Math.abs(plan.entry_limit - plan.entry) > 1e-9 ? ` (Pullback \`${fmtPx(plan.entry_limit, dec)}\` until ${fmtUtc(sig.valid_until)})` : ''}`,
     `- 🛡️ **Stop Loss:** \`${fmtPx(plan.sl, dec)}\` (${riskPct.toFixed(2)}% · \`${atrMult.toFixed(1)}× ATR\`)`,
     `- ⚖️ **Position Risk:** \`≤ ${ad.size_mult.toFixed(2)}%\` equity  ·  ${stratTag} · ${edgeBadge}`,
-    `- ⏱️ **Timeframe & Monitor:** \`15m\` pure squeeze · Monitored live until close`,
+    `- ⏱️ **Timeframe & Monitor:** \`${sig.timeframe || '5m'}\` pure squeeze · Monitored live until close`,
     '',
     '### 🪜 Profit & Protection Ladder',
     '',

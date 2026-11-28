@@ -99,8 +99,32 @@ def test_parse_active_symbols_routes_all_groups_and_skips_suspended() -> None:
     assert parsed["BOOM1000"].slack_channel == "C0CJWBE5E2Z"
     assert parsed["frxEURUSD"].slack_channel == "C0CJWBHVAMT"
     assert parsed["cryBTCUSD"].slack_channel == "C0CK3GYBY7K"
-    assert parsed["cryBTCUSD"].primary_timeframe == 900
+    assert parsed["cryBTCUSD"].primary_timeframe == 300
     assert parsed["cryBTCUSD"].higher_timeframe is None
+
+
+def test_normalize_symbol_description_all_asset_classes() -> None:
+    from bot.deriv.discovery import normalize_symbol_description
+
+    cases = [
+        ("1HZ15V", "Volatility 15 Index", "Volatility 15 (1s) Index"),
+        ("R_100", "Volatility 100 (1s) Index", "Volatility 100 Index"),
+        ("stpRNG", "Step Index", "Step Index 100"),
+        ("stpRNG2", "Step 200", "Step Index 200"),
+        ("BOOM150N", "Boom 150N", "Boom 150 Index"),
+        ("CRASH300N", "Crash 300N", "Crash 300 Index"),
+        ("JD50", "Jump 50", "Jump 50 Index"),
+        ("RB200", "Range Break 200", "Range Break 200 Index"),
+        ("RDBEAR", "Bear Market", "Bear Market Index"),
+        ("frxEURUSD", "EUR/USD Spot FX", "EUR/USD"),
+        ("frxXAUUSD", "Gold / USD", "Gold/USD"),
+        ("cryBTCUSD", "BTC USD", "BTC/USD"),
+        ("WLDXAU", "XAU Basket", "Gold Basket"),
+        ("WLDEUR", "EUR Basket", "EUR Basket"),
+        ("OTC_NDX", "US Tech 100", "US Tech 100"),
+    ]
+    for sym, raw, expected in cases:
+        assert normalize_symbol_description(sym, raw) == expected
 
 
 def test_risk_manager_enforces_max_per_group_open() -> None:

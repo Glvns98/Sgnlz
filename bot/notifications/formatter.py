@@ -336,7 +336,7 @@ def build_trade_opened_bundle(
         edge_badge = "✅ Validated Edge" if (len(hist) >= 5 and avg_r > 0) else "🌱 Early Sample"
         track_line = f"{len(hist)} trades | Win {wr:.0f}% | Avg {avg_r:+.2f}R | {edge_badge}"
     else:
-        track_line = "First recorded 15m setup for this pair/direction"
+        track_line = f"First recorded {tf_label} setup for this pair/direction"
 
     snap = market_state.squeeze
     sqz_desc = (
@@ -347,9 +347,9 @@ def build_trade_opened_bundle(
     bcolor_txt = _bcolor_badge(snap.bcolor)
     scolor_txt = _scolor_badge(snap.scolor)
     setup_label = (
-        "💥 15m Squeeze Breakout"
+        f"💥 {tf_label} Squeeze Breakout"
         if signal.signal_type.value == "NEW_OPPORTUNITY"
-        else "🚀 15m Momentum Continuation"
+        else f"🚀 {tf_label} Momentum Continuation"
     )
 
     ladder_plain_lines = [
@@ -363,7 +363,7 @@ def build_trade_opened_bundle(
 
     why_lines_slack = [f"✅ {item}" for item in passed[:4]]
     if not why_lines_slack:
-        why_lines_slack = ["✅ Aligned 15m Squeeze momentum"]
+        why_lines_slack = [f"✅ Aligned {tf_label} Squeeze momentum"]
     why_lines_reddit = "\n".join(f"- {line}" for line in why_lines_slack)
 
     header_plain = f"{emoji} {dir_label}  ·  {desc} ({position.symbol})  ·  {tf_label} Scalp"[:148]
@@ -384,7 +384,7 @@ def build_trade_opened_bundle(
         f"- ⏱️ **Timeframe & Monitor:** `{tf_label}` pure squeeze · Monitored live until close\n\n"
         "### 🪜 Profit & Protection Ladder\n\n"
         f"{ladder_reddit}\n\n"
-        f"### ⚡ 15m Scalp Readout ({len(passed)}/{total_checks} checks)\n\n"
+        f"### ⚡ {tf_label} Scalp Readout ({len(passed)}/{total_checks} checks)\n\n"
         f"{squeeze_summary}\n\n"
         f"{why_lines_reddit}\n\n"
         f"📒 **Track Record:** {track_line}\n\n"
@@ -437,7 +437,7 @@ def build_trade_opened_bundle(
             "text": {
                 "type": "mrkdwn",
                 "text": (
-                    f"*⚡ 15m SCALP READOUT*  ({len(passed)}/{total_checks} checks)\n"
+                    f"*⚡ {tf_label} SCALP READOUT*  ({len(passed)}/{total_checks} checks)\n"
                     f"{squeeze_summary}\n" + "\n".join(why_lines_slack)
                 )[:2900],
             },

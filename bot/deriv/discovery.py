@@ -11,17 +11,65 @@ from bot.deriv.client import DerivAPIClient
 
 _HZ_VOL_RE = re.compile(r"^1HZ(\d+)V$", re.IGNORECASE)
 _STD_VOL_RE = re.compile(r"^R_(\d+)$", re.IGNORECASE)
+_BOOM_RE = re.compile(r"^BOOM(\d+)N?$", re.IGNORECASE)
+_CRASH_RE = re.compile(r"^CRASH(\d+)N?$", re.IGNORECASE)
+_JUMP_RE = re.compile(r"^JD(\d+)$", re.IGNORECASE)
+_RANGE_RE = re.compile(r"^RB(\d+)$", re.IGNORECASE)
+_BASKET_RE = re.compile(r"^WLD([A-Z]{3})$", re.IGNORECASE)
+_FRX_RE = re.compile(r"^FRX([A-Z]{3})([A-Z]{3})$", re.IGNORECASE)
+_CRYPTO_RE = re.compile(r"^CRY([A-Z]{2,6})USD$", re.IGNORECASE)
+
+_CANONICAL_SYMBOL_NAMES: dict[str, str] = {
+    "OTC_DJI": "Wall Street 30",
+    "OTC_NDX": "US Tech 100",
+    "OTC_SPC": "US 500",
+    "OTC_AS51": "Australia 200",
+    "OTC_HSI": "Hong Kong 50",
+    "OTC_N225": "Japan 225",
+    "OTC_AEX": "Netherlands 25",
+    "OTC_FCHI": "France 40",
+    "OTC_FTSE": "UK 100",
+    "OTC_GDAXI": "Germany 40",
+    "OTC_SSMI": "Swiss 20",
+    "OTC_SX5E": "Euro 50",
+    "RDBEAR": "Bear Market Index",
+    "RDBULL": "Bull Market Index",
+    "STPRNG": "Step Index 100",
+    "STPRNG2": "Step Index 200",
+    "STPRNG3": "Step Index 300",
+    "STPRNG4": "Step Index 400",
+    "STPRNG5": "Step Index 500",
+    "FRXXAUUSD": "Gold/USD",
+    "FRXXAGUSD": "Silver/USD",
+    "FRXXPDUSD": "Palladium/USD",
+    "FRXXPTUSD": "Platinum/USD",
+    "WLDXAU": "Gold Basket",
+}
 
 
 def normalize_symbol_description(symbol: str, raw_name: str = "") -> str:
-    """Return an unambiguous human-readable Deriv instrument name (distinguishing 1s indices)."""
+    """Return a clean, unambiguous Deriv instrument name across all asset classes."""
     sym = (symbol or "").strip().upper()
-    hz_match = _HZ_VOL_RE.match(sym)
-    if hz_match:
-        return f"Volatility {hz_match.group(1)} (1s) Index"
-    std_match = _STD_VOL_RE.match(sym)
-    if std_match:
-        return f"Volatility {std_match.group(1)} Index"
+    if sym in _CANONICAL_SYMBOL_NAMES:
+        return _CANONICAL_SYMBOL_NAMES[sym]
+    if m := _HZ_VOL_RE.match(sym):
+        return f"Volatility {m.group(1)} (1s) Index"
+    if m := _STD_VOL_RE.match(sym):
+        return f"Volatility {m.group(1)} Index"
+    if m := _BOOM_RE.match(sym):
+        return f"Boom {m.group(1)} Index"
+    if m := _CRASH_RE.match(sym):
+        return f"Crash {m.group(1)} Index"
+    if m := _JUMP_RE.match(sym):
+        return f"Jump {m.group(1)} Index"
+    if m := _RANGE_RE.match(sym):
+        return f"Range Break {m.group(1)} Index"
+    if m := _BASKET_RE.match(sym):
+        return f"{m.group(1).upper()} Basket"
+    if m := _FRX_RE.match(sym):
+        return f"{m.group(1).upper()}/{m.group(2).upper()}"
+    if m := _CRYPTO_RE.match(sym):
+        return f"{m.group(1).upper()}/USD"
     cleaned = " ".join((raw_name or "").split()).strip()
     return cleaned or symbol
 
@@ -46,7 +94,7 @@ SUBMARKET_ROUTING: dict[str, SubmarketRouting] = {
         group_name="Volatility Indices",
         slack_channel="C0CJWBD99QD",
         reddit_flair="📈 #volatility-indices",
-        primary_timeframe=900,
+        primary_timeframe=300,
         higher_timeframe=None,
         lower_timeframe=None,
         atr_stop_multiple=2.0,
@@ -59,7 +107,7 @@ SUBMARKET_ROUTING: dict[str, SubmarketRouting] = {
         group_name="Crash & Boom",
         slack_channel="C0CJWBE5E2Z",
         reddit_flair="💥 #crash-boom",
-        primary_timeframe=900,
+        primary_timeframe=300,
         higher_timeframe=None,
         lower_timeframe=None,
         atr_stop_multiple=2.2,
@@ -72,7 +120,7 @@ SUBMARKET_ROUTING: dict[str, SubmarketRouting] = {
         group_name="Step Indices",
         slack_channel="C0CJWBERH4M",
         reddit_flair="🪜 #step-indices",
-        primary_timeframe=900,
+        primary_timeframe=300,
         higher_timeframe=None,
         lower_timeframe=None,
         atr_stop_multiple=1.9,
@@ -85,7 +133,7 @@ SUBMARKET_ROUTING: dict[str, SubmarketRouting] = {
         group_name="Jump Indices",
         slack_channel="C0CK3GTA76V",
         reddit_flair="🦘 #jump-indices",
-        primary_timeframe=900,
+        primary_timeframe=300,
         higher_timeframe=None,
         lower_timeframe=None,
         atr_stop_multiple=2.3,
@@ -98,7 +146,7 @@ SUBMARKET_ROUTING: dict[str, SubmarketRouting] = {
         group_name="Range Break",
         slack_channel="C0CKW1NCZR6",
         reddit_flair="📦 #range-break",
-        primary_timeframe=900,
+        primary_timeframe=300,
         higher_timeframe=None,
         lower_timeframe=None,
         atr_stop_multiple=2.0,
@@ -111,7 +159,7 @@ SUBMARKET_ROUTING: dict[str, SubmarketRouting] = {
         group_name="Range Break",
         slack_channel="C0CKW1NCZR6",
         reddit_flair="📦 #range-break",
-        primary_timeframe=900,
+        primary_timeframe=300,
         higher_timeframe=None,
         lower_timeframe=None,
         atr_stop_multiple=2.0,
@@ -124,7 +172,7 @@ SUBMARKET_ROUTING: dict[str, SubmarketRouting] = {
         group_name="Daily Reset",
         slack_channel="C0CJWBH79RT",
         reddit_flair="🔄 #daily-reset",
-        primary_timeframe=900,
+        primary_timeframe=300,
         higher_timeframe=None,
         lower_timeframe=None,
         atr_stop_multiple=2.0,
@@ -137,7 +185,7 @@ SUBMARKET_ROUTING: dict[str, SubmarketRouting] = {
         group_name="FX Baskets",
         slack_channel="C0CJZM5LS4E",
         reddit_flair="🧺 #fx-baskets",
-        primary_timeframe=900,
+        primary_timeframe=300,
         higher_timeframe=None,
         lower_timeframe=None,
         atr_stop_multiple=1.9,
@@ -150,7 +198,7 @@ SUBMARKET_ROUTING: dict[str, SubmarketRouting] = {
         group_name="Metals & Commodities",
         slack_channel="C0CK5BEUT1S",
         reddit_flair="🥇 #metals",
-        primary_timeframe=900,
+        primary_timeframe=300,
         higher_timeframe=None,
         lower_timeframe=None,
         atr_stop_multiple=2.0,
@@ -163,7 +211,7 @@ SUBMARKET_ROUTING: dict[str, SubmarketRouting] = {
         group_name="Metals & Commodities",
         slack_channel="C0CK5BEUT1S",
         reddit_flair="🥇 #metals",
-        primary_timeframe=900,
+        primary_timeframe=300,
         higher_timeframe=None,
         lower_timeframe=None,
         atr_stop_multiple=2.0,
@@ -176,7 +224,7 @@ SUBMARKET_ROUTING: dict[str, SubmarketRouting] = {
         group_name="Metals & Commodities",
         slack_channel="C0CK5BEUT1S",
         reddit_flair="🥇 #metals",
-        primary_timeframe=900,
+        primary_timeframe=300,
         higher_timeframe=None,
         lower_timeframe=None,
         atr_stop_multiple=2.0,
@@ -189,7 +237,7 @@ SUBMARKET_ROUTING: dict[str, SubmarketRouting] = {
         group_name="Forex Majors",
         slack_channel="C0CJWBHVAMT",
         reddit_flair="💱 #forex-majors",
-        primary_timeframe=900,
+        primary_timeframe=300,
         higher_timeframe=None,
         lower_timeframe=None,
         atr_stop_multiple=1.8,
@@ -202,7 +250,7 @@ SUBMARKET_ROUTING: dict[str, SubmarketRouting] = {
         group_name="Forex Minors",
         slack_channel="C0CKW1QGPEU",
         reddit_flair="🌐 #forex-minors",
-        primary_timeframe=900,
+        primary_timeframe=300,
         higher_timeframe=None,
         lower_timeframe=None,
         atr_stop_multiple=1.9,
@@ -215,7 +263,7 @@ SUBMARKET_ROUTING: dict[str, SubmarketRouting] = {
         group_name="Crypto",
         slack_channel="C0CK3GYBY7K",
         reddit_flair="₿ #crypto-signals",
-        primary_timeframe=900,
+        primary_timeframe=300,
         higher_timeframe=None,
         lower_timeframe=None,
         atr_stop_multiple=2.1,
@@ -228,7 +276,7 @@ SUBMARKET_ROUTING: dict[str, SubmarketRouting] = {
         group_name="Stock Indices",
         slack_channel="C0CK1ERLNNN",
         reddit_flair="📊 #stock-indices",
-        primary_timeframe=900,
+        primary_timeframe=300,
         higher_timeframe=None,
         lower_timeframe=None,
         atr_stop_multiple=2.0,
@@ -241,7 +289,7 @@ SUBMARKET_ROUTING: dict[str, SubmarketRouting] = {
         group_name="Stock Indices",
         slack_channel="C0CK1ERLNNN",
         reddit_flair="📊 #stock-indices",
-        primary_timeframe=900,
+        primary_timeframe=300,
         higher_timeframe=None,
         lower_timeframe=None,
         atr_stop_multiple=2.0,
@@ -254,7 +302,7 @@ SUBMARKET_ROUTING: dict[str, SubmarketRouting] = {
         group_name="Stock Indices",
         slack_channel="C0CK1ERLNNN",
         reddit_flair="📊 #stock-indices",
-        primary_timeframe=900,
+        primary_timeframe=300,
         higher_timeframe=None,
         lower_timeframe=None,
         atr_stop_multiple=2.0,
@@ -277,7 +325,7 @@ _DEFAULT_ROUTING = SubmarketRouting(
     group_name="General Markets",
     slack_channel="C09C9FGM8QY",
     reddit_flair="🌐 #trading · Pulse & EOD",
-    primary_timeframe=900,
+    primary_timeframe=300,
     higher_timeframe=None,
     lower_timeframe=None,
     atr_stop_multiple=2.0,

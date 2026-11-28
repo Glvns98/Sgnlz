@@ -750,17 +750,17 @@ describe('Cerynaean Hind Reddit App (r/GlvnsOrg)', () => {
 
   it('preserves (1s) volatility index naming on Slack relay and parses TREND WEAKENING updates', () => {
     const headers = [
-      '🟢 LONG  ·  Volatility 15 (1s) Index (1HZ15V)  ·  15m Scalp',
-      '🟢 LONG  ·  Volatility 15 (1s) Index (15m Scalp)',
+      { hdr: '🟢 LONG  ·  Volatility 15 (1s) Index (1HZ15V)  ·  5m Scalp', tf: '5m' },
+      { hdr: '🟢 LONG  ·  Volatility 15 (1s) Index (15m Scalp)', tf: '15m' },
     ];
-    for (const hdr of headers) {
+    for (const { hdr, tf } of headers) {
       const parsed = parseSlackMessage('volatility-indices', 'C0CJWBD99QD', {
         ts: '1795571000.000100',
         blocks: [
           { type: 'header', text: { type: 'plain_text', text: hdr } },
           {
             type: 'context',
-            elements: [{ type: 'mrkdwn', text: '🏷️ `1HZ15V`  ·  ⚡ `15m Scalp`  ·  📈 #volatility-indices  ·  ⏰ 12:00 UTC  ·  🆔 `TRD-1S15`' }],
+            elements: [{ type: 'mrkdwn', text: `🏷️ \`1HZ15V\`  ·  ⚡ \`${tf} Scalp\`  ·  📈 #volatility-indices  ·  ⏰ 12:00 UTC  ·  🆔 \`TRD-1S15\`` }],
           },
           { type: 'section', text: { type: 'mrkdwn', text: '🔥 B+  ⭐⭐⭐⭐☆  ·  *78/100*\n🚀 Expansion Trend' } },
           {
@@ -785,7 +785,41 @@ describe('Cerynaean Hind Reddit App (r/GlvnsOrg)', () => {
       if (parsed?.kind === 'signal') {
         expect(parsed.symbol).toBe('1HZ15V');
         expect(parsed.name).toBe('Volatility 15 (1s) Index');
+        expect(parsed.card.tf).toBe(tf);
+        expect(parsed.body).toContain(`### ⚡ ${tf} Scalp Readout`);
         expect(parsed.title).toContain('Volatility 15 (1s) Index (1HZ15V)');
+      }
+    }
+
+    const otherAssets = [
+      { sym: 'stpRNG2', raw: 'Step 200', expected: 'Step Index 200', ch: 'step-indices' },
+      { sym: 'BOOM150N', raw: 'Boom 150N', expected: 'Boom 150 Index', ch: 'crash-boom' },
+      { sym: 'frxXAUUSD', raw: 'Gold / USD', expected: 'Gold/USD', ch: 'metals' },
+      { sym: 'OTC_NDX', raw: 'US Tech 100', expected: 'US Tech 100', ch: 'stock-indices' },
+    ];
+    for (const item of otherAssets) {
+      const parsed = parseSlackMessage(item.ch, 'C0TEST', {
+        ts: '1795572000.000100',
+        blocks: [
+          { type: 'header', text: { type: 'plain_text', text: `🟢 LONG  ·  ${item.raw} (${item.sym})  ·  5m Scalp` } },
+          {
+            type: 'context',
+            elements: [{ type: 'mrkdwn', text: `🏷️ \`${item.sym}\`  ·  ⚡ \`5m Scalp\`  ·  ⏰ 12:00 UTC  ·  🆔 \`TRD-${item.sym}\`` }],
+          },
+          {
+            type: 'section',
+            text: { type: 'mrkdwn', text: '*🎯 SCALP EXECUTION PLAN*' },
+            fields: [
+              { type: 'mrkdwn', text: '*📍 Entry*\n`100.00`' },
+              { type: 'mrkdwn', text: '*🛡️ Stop Loss*\n`98.00` (2.00%)' },
+            ],
+          },
+        ],
+      });
+      expect(parsed?.kind).toBe('signal');
+      if (parsed?.kind === 'signal') {
+        expect(parsed.name).toBe(item.expected);
+        expect(parsed.card.tf).toBe('5m');
       }
     }
 

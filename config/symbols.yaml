@@ -4,7 +4,7 @@ symbols:
     description: Volatility 10 Index
     slack_channel: C0CJWBD99QD
     reddit_flair: "📈 #volatility-indices"
-    primary_timeframe: 900
+    primary_timeframe: 300
     higher_timeframe: null
     lower_timeframe: null
     multiplier: 100
@@ -22,7 +22,7 @@ symbols:
     description: Volatility 25 Index
     slack_channel: C0CJWBD99QD
     reddit_flair: "📈 #volatility-indices"
-    primary_timeframe: 900
+    primary_timeframe: 300
     higher_timeframe: null
     lower_timeframe: null
     multiplier: 50
@@ -40,7 +40,7 @@ symbols:
     description: Volatility 50 Index
     slack_channel: C0CJWBD99QD
     reddit_flair: "📈 #volatility-indices"
-    primary_timeframe: 900
+    primary_timeframe: 300
     higher_timeframe: null
     lower_timeframe: null
     multiplier: 40
@@ -58,7 +58,7 @@ symbols:
     description: Volatility 75 Index
     slack_channel: C0CJWBD99QD
     reddit_flair: "📈 #volatility-indices"
-    primary_timeframe: 900
+    primary_timeframe: 300
     higher_timeframe: null
     lower_timeframe: null
     multiplier: 25
@@ -76,7 +76,7 @@ symbols:
     description: Volatility 100 Index
     slack_channel: C0CJWBD99QD
     reddit_flair: "📈 #volatility-indices"
-    primary_timeframe: 900
+    primary_timeframe: 300
     higher_timeframe: null
     lower_timeframe: null
     multiplier: 20
@@ -94,7 +94,7 @@ symbols:
     description: Volatility 100 (1s) Index
     slack_channel: C0CJWBD99QD
     reddit_flair: "📈 #volatility-indices"
-    primary_timeframe: 900
+    primary_timeframe: 300
     higher_timeframe: null
     lower_timeframe: null
     multiplier: 20
@@ -109,10 +109,10 @@ symbols:
 
   frxEURUSD:
     enabled: false
-    description: EUR/USD Spot FX
+    description: EUR/USD
     slack_channel: C0CJWBHVAMT
     reddit_flair: "💱 #forex-majors"
-    primary_timeframe: 900
+    primary_timeframe: 300
     higher_timeframe: null
     lower_timeframe: null
     multiplier: 100
@@ -127,10 +127,10 @@ symbols:
 
   frxXAUUSD:
     enabled: false
-    description: Gold / USD
+    description: Gold/USD
     slack_channel: C0CK5BEUT1S
     reddit_flair: "🥇 #metals"
-    primary_timeframe: 900
+    primary_timeframe: 300
     higher_timeframe: null
     lower_timeframe: null
     multiplier: 50

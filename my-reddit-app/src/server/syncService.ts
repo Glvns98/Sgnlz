@@ -86,7 +86,8 @@ export function slackSignalToDto(s: ParsedSlackSignal): SignalDto {
   const r3 = risk > 0 ? Math.abs(s.tp3 - s.entry) / risk : 3.5;
   const ch = getChannelDef(s.channelName);
   const isV3 = /^v3\b/i.test(s.card.tf) || /Strategy v3/i.test(s.body);
-  const isV2 = !isV3 && (/^v2\b/i.test(s.card.tf) || /Strategy v2|15m/i.test(s.body));
+  const is5m = /^5m$/i.test(s.card.tf);
+  const isV2 = !isV3 && !is5m && (/^v2\b/i.test(s.card.tf) || /Strategy v2|15m/i.test(s.body));
   const is30m = isV3 && /30m/i.test(s.card.tf);
   const barSeconds = isV3 ? (is30m ? 1800 : 3600) : isV2 ? 900 : 300;
   const timeframe = isV3 ? (is30m ? '30m' : '1h') : isV2 ? '15m' : '5m';

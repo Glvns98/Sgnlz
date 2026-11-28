@@ -38,7 +38,7 @@ class ReplayResult:
 def generate_synthetic_deriv_candles(
     symbol: str,
     bars: int = 1200,
-    timeframe_sec: int = 900,
+    timeframe_sec: int = 300,
     seed: int = 42,
     start_epoch: int = 1767225600,
     base_price: float = 1000.0,
@@ -133,7 +133,7 @@ def generate_synthetic_deriv_candles(
     return candles
 
 
-def load_candles_from_csv(path: str | Path, symbol: str, timeframe_sec: int = 900) -> list[Candle]:
+def load_candles_from_csv(path: str | Path, symbol: str, timeframe_sec: int = 300) -> list[Candle]:
     df = pd.read_csv(path)
     cols = {c.lower(): c for c in df.columns}
     candles: list[Candle] = []
